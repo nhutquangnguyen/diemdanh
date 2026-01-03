@@ -84,6 +84,22 @@ function CheckInContent() {
       if (error) throw error;
       setStoreInfo(data);
 
+      // Check authorization if staff_only mode
+      if (data.access_mode === 'staff_only') {
+        const { data: staffRecord, error: staffError } = await supabase
+          .from('staff')
+          .select('id')
+          .eq('email', currentUser.email)
+          .eq('store_id', storeId)
+          .single();
+
+        if (staffError || !staffRecord) {
+          setErrorMessage('Email của bạn chưa được thêm vào danh sách nhân viên. Vui lòng liên hệ chủ cửa hàng để được cấp quyền truy cập.');
+          setStep('error');
+          return;
+        }
+      }
+
       // Get GPS location only if required
       if (data.gps_required) {
         try {
@@ -515,7 +531,7 @@ function CheckInContent() {
               </>
             )}
 
-            <Link href="/checkin">
+            <Link href="/">
               <button className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-lg font-semibold transition-all">
                 Hoàn Thành
               </button>
@@ -526,18 +542,38 @@ function CheckInContent() {
         {/* Error */}
         {step === 'error' && (
           <div className="bg-white rounded-lg shadow-lg p-12 text-center">
-            <div className="w-24 h-24 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
-              <svg className="w-12 h-12 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </div>
-            <h2 className="text-3xl font-bold text-gray-800 mb-4">
-              Có Lỗi Xảy Ra
-            </h2>
-            <p className="text-gray-600 mb-8">
-              {errorMessage}
-            </p>
-            <Link href="/checkin">
+            {errorMessage.includes('chưa được thêm vào danh sách nhân viên') ? (
+              // Authorization error - not really an "error", just not authorized
+              <>
+                <div className="w-24 h-24 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <svg className="w-12 h-12 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                </div>
+                <h2 className="text-3xl font-bold text-gray-800 mb-4">
+                  Không Có Quyền Truy Cập
+                </h2>
+                <p className="text-gray-600 mb-8">
+                  {errorMessage}
+                </p>
+              </>
+            ) : (
+              // Actual errors (GPS, network, etc.)
+              <>
+                <div className="w-24 h-24 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <svg className="w-12 h-12 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </div>
+                <h2 className="text-3xl font-bold text-gray-800 mb-4">
+                  Có Lỗi Xảy Ra
+                </h2>
+                <p className="text-gray-600 mb-8">
+                  {errorMessage}
+                </p>
+              </>
+            )}
+            <Link href="/">
               <button className="bg-gray-600 hover:bg-gray-700 text-white px-8 py-3 rounded-lg font-semibold transition-all">
                 Quay Lại
               </button>

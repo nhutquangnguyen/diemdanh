@@ -44,10 +44,14 @@ export default function StoreDetail() {
   }
 
   async function updateStoreSettings(settings: {
-    gps_required: boolean;
-    selfie_required: boolean;
-    access_mode: 'staff_only' | 'anyone';
-    radius_meters: number;
+    name?: string;
+    address?: string;
+    latitude?: number;
+    longitude?: number;
+    gps_required?: boolean;
+    selfie_required?: boolean;
+    access_mode?: 'staff_only' | 'anyone';
+    radius_meters?: number;
   }) {
     setSettingsLoading(true);
     try {
@@ -427,19 +431,90 @@ export default function StoreDetail() {
           {activeTab === 'settings' && store && (
             <div className="p-8">
               <h2 className="text-2xl font-bold text-gray-800 mb-6">
-                Cài Đặt Điểm Danh
+                Cài Đặt Cửa Hàng
               </h2>
 
               <form onSubmit={(e) => {
                 e.preventDefault();
                 const formData = new FormData(e.currentTarget);
                 updateStoreSettings({
+                  name: formData.get('name') as string,
+                  address: formData.get('address') as string,
+                  latitude: parseFloat(formData.get('latitude') as string),
+                  longitude: parseFloat(formData.get('longitude') as string),
                   gps_required: formData.get('gps_required') === 'on',
                   selfie_required: formData.get('selfie_required') === 'on',
                   access_mode: formData.get('access_mode') as 'staff_only' | 'anyone',
                   radius_meters: parseInt(formData.get('radius_meters') as string) || 50,
                 });
               }} className="space-y-6">
+
+                {/* Store Information */}
+                <div className="bg-gray-50 rounded-lg p-6">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4">Thông Tin Cửa Hàng</h3>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Tên cửa hàng
+                      </label>
+                      <input
+                        type="text"
+                        name="name"
+                        required
+                        defaultValue={store.name}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Địa chỉ
+                      </label>
+                      <input
+                        type="text"
+                        name="address"
+                        required
+                        defaultValue={store.address}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Vĩ độ (Latitude)
+                        </label>
+                        <input
+                          type="number"
+                          name="latitude"
+                          required
+                          step="any"
+                          defaultValue={store.latitude}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Kinh độ (Longitude)
+                        </label>
+                        <input
+                          type="number"
+                          name="longitude"
+                          required
+                          step="any"
+                          defaultValue={store.longitude}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-gray-500">
+                      💡 Mẹo: Bạn có thể lấy tọa độ từ Google Maps bằng cách nhấp chuột phải vào vị trí và chọn tọa độ
+                    </p>
+                  </div>
+                </div>
 
                 {/* GPS Settings */}
                 <div className="bg-gray-50 rounded-lg p-6">
