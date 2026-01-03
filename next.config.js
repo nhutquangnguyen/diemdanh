@@ -8,6 +8,8 @@ const nextConfig = {
       },
     ],
   },
+  // Disable static page generation to prevent build-time environment variable issues
+  output: 'standalone',
 }
 
 module.exports = nextConfig

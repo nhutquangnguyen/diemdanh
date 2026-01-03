@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { signUp } from '@/lib/auth';
 
+export const runtime = 'edge';
+
 function SignupContent() {
   const router = useRouter();
   const searchParams = useSearchParams();

@@ -73,10 +73,14 @@ function CheckInContent() {
 
     // Get store ID from URL and load store info
     const storeId = searchParams.get('store');
+    console.log('Store ID from URL:', storeId);
+    console.log('Full URL:', window.location.href);
+    console.log('Search params:', window.location.search);
+
     if (storeId) {
       await loadStoreInfo(storeId);
     } else {
-      setErrorMessage('Thiếu thông tin cửa hàng');
+      setErrorMessage(`Thiếu thông tin cửa hàng. URL: ${window.location.href}`);
       setStep('error');
     }
   }

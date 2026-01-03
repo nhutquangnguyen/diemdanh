@@ -47,15 +47,20 @@ export default function Header() {
   }
 
   return (
-    <header className="bg-white shadow-sm">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+    <header className="bg-white shadow-sm sticky top-0 z-40">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
         <div className="flex justify-between items-center">
-          <Link href="/">
-            <h1 className="text-2xl font-bold text-blue-600 cursor-pointer">
-              Hệ Thống Điểm Danh
+          <Link href="/" className="flex items-center gap-2 sm:gap-3 cursor-pointer">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-blue-500 to-green-500 rounded-full flex items-center justify-center shadow-md">
+              <svg className="w-5 h-5 sm:w-6 sm:h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-blue-600 truncate">
+              diemdanh.net
             </h1>
           </Link>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             {!loading && (
               <>
                 {user ? (
@@ -92,12 +97,12 @@ export default function Header() {
                 ) : (
                   <>
                     <Link href="/auth/login">
-                      <button className="text-gray-700 hover:text-blue-600 font-semibold">
+                      <button className="text-gray-700 hover:text-blue-600 font-semibold text-sm sm:text-base">
                         Đăng Nhập
                       </button>
                     </Link>
                     <Link href="/auth/signup">
-                      <button className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-semibold transition-all">
+                      <button className="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-4 sm:px-6 py-2 rounded-lg font-semibold text-sm sm:text-base transition-all">
                         Đăng Ký
                       </button>
                     </Link>

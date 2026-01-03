@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { signIn } from '@/lib/auth';
 import { Suspense } from 'react';
 
+export const runtime = 'edge';
+
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -67,9 +69,14 @@ function LoginContent() {
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              Mật Khẩu
-            </label>
+            <div className="flex justify-between items-center mb-2">
+              <label className="block text-sm font-semibold text-gray-700">
+                Mật Khẩu
+              </label>
+              <Link href="/auth/forgot-password" className="text-sm text-blue-600 hover:text-blue-700 font-semibold">
+                Quên mật khẩu?
+              </Link>
+            </div>
             <input
               type="password"
               required
