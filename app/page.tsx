@@ -3,21 +3,22 @@ import Header from '@/components/Header';
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex flex-col">
       <Header />
 
-      {/* Hero Section */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 text-center">
-        <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-gray-800 mb-4 sm:mb-6 leading-tight">
-          Hệ Thống Điểm Danh Thông Minh
-        </h1>
-        <p className="text-base sm:text-lg md:text-xl lg:text-2xl text-gray-600 mb-8 sm:mb-10 max-w-3xl mx-auto px-4">
-          Giải pháp chấm công hiện đại với QR code, selfie và xác thực vị trí GPS
-        </p>
-      </section>
+      <main className="flex-1 flex flex-col">
+        {/* Hero Section */}
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 text-center">
+          <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-gray-800 mb-4 sm:mb-6 leading-tight">
+            Hệ Thống Điểm Danh Thông Minh
+          </h1>
+          <p className="text-base sm:text-lg md:text-xl lg:text-2xl text-gray-600 mb-8 sm:mb-10 max-w-3xl mx-auto px-4">
+            Giải pháp chấm công hiện đại với QR code, selfie và xác thực vị trí GPS
+          </p>
+        </section>
 
-      {/* Quick Actions */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8 sm:pb-16">
+        {/* Quick Actions */}
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8 sm:pb-16 flex-1">
         <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:gap-8 max-w-4xl mx-auto">
           {/* Manage Button */}
           <Link href="/owner">
@@ -52,83 +53,21 @@ export default function Home() {
           </Link>
         </div>
       </section>
-
-      {/* Features Section */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
-        <h3 className="text-2xl sm:text-3xl font-bold text-center text-gray-800 mb-8 sm:mb-12">
-          Cách Hoạt Động
-        </h3>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
-          {/* Feature 1 */}
-          <div className="bg-white rounded-xl shadow-lg p-6 sm:p-8 text-center">
-            <div className="w-14 h-14 sm:w-16 sm:h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-7 h-7 sm:w-8 sm:h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-            </div>
-            <h4 className="text-lg sm:text-xl font-bold text-gray-800 mb-2 sm:mb-3">
-              1. Tạo Sự Kiện
-            </h4>
-            <p className="text-sm sm:text-base text-gray-600">
-              Tạo sự kiện/cửa hàng và nhận mã QR điểm danh ngay lập tức
-            </p>
-          </div>
-
-          {/* Feature 2 */}
-          <div className="bg-white rounded-xl shadow-lg p-6 sm:p-8 text-center">
-            <div className="w-14 h-14 sm:w-16 sm:h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-7 h-7 sm:w-8 sm:h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-              </svg>
-            </div>
-            <h4 className="text-lg sm:text-xl font-bold text-gray-800 mb-2 sm:mb-3">
-              2. Thêm Danh Sách
-            </h4>
-            <p className="text-sm sm:text-base text-gray-600">
-              Thêm email người tham gia. Chỉ người trong danh sách mới điểm danh được
-            </p>
-          </div>
-
-          {/* Feature 3 */}
-          <div className="bg-white rounded-xl shadow-lg p-6 sm:p-8 text-center sm:col-span-2 lg:col-span-1">
-            <div className="w-14 h-14 sm:w-16 sm:h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-7 h-7 sm:w-8 sm:h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <h4 className="text-lg sm:text-xl font-bold text-gray-800 mb-2 sm:mb-3">
-              3. Quét & Điểm Danh
-            </h4>
-            <p className="text-sm sm:text-base text-gray-600">
-              Người tham gia quét QR, chụp selfie và xác thực vị trí GPS
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 text-center">
-        <h3 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-4 sm:mb-6">
-          Sẵn Sàng Bắt Đầu?
-        </h3>
-        <p className="text-base sm:text-lg lg:text-xl text-gray-600 mb-6 sm:mb-8 max-w-2xl mx-auto px-4">
-          Đăng ký miễn phí và tạo sự kiện đầu tiên trong 1 phút
-        </p>
-        <Link href="/auth/signup">
-          <button className="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-8 sm:px-10 py-3 sm:py-4 rounded-lg font-semibold text-base sm:text-lg transition-all shadow-lg hover:shadow-xl active:scale-95">
-            Đăng Ký Miễn Phí
-          </button>
-        </Link>
-      </section>
+      </main>
 
       {/* Footer */}
-      <footer className="bg-white mt-12 sm:mt-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 text-center text-gray-600">
-          <p className="text-xs sm:text-sm">
-            © 2026 Diemdanh.net - Giải pháp chấm công thông minh
-          </p>
+      <footer className="bg-white mt-auto">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+          <div className="flex flex-col items-center gap-4">
+            <Link href="/about" className="text-blue-600 hover:text-blue-700 font-semibold text-sm sm:text-base">
+              Giới thiệu về Diemdanh.net
+            </Link>
+            <p className="text-xs sm:text-sm text-gray-600">
+              © 2026 Diemdanh.net - Giải pháp chấm công thông minh
+            </p>
+          </div>
         </div>
       </footer>
-    </main>
+    </div>
   );
 }
