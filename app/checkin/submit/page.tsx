@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import Webcam from 'react-webcam';
 import { supabase } from '@/lib/supabase';
 import { getCurrentLocation, calculateDistance } from '@/utils/location';
