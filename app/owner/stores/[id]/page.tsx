@@ -375,8 +375,10 @@ export default function StoreDetail() {
                         return s.full_name.toLowerCase().includes(staffSearch.toLowerCase());
                       })
                       .flatMap((s: Staff) => {
-                        // Get ALL check-ins for this staff today
-                        const staffCheckIns = todayCheckIns.filter((c: CheckIn) => c.staff_id === s.id);
+                        // Get ALL check-ins for this staff today and sort by check_in_time ascending (earliest first)
+                        const staffCheckIns = todayCheckIns
+                          .filter((c: CheckIn) => c.staff_id === s.id)
+                          .sort((a, b) => new Date(a.check_in_time).getTime() - new Date(b.check_in_time).getTime());
 
                         // Apply status filter
                         const filteredCheckIns = staffCheckIns.filter((checkIn: CheckIn) => {
@@ -432,25 +434,52 @@ export default function StoreDetail() {
 
                         if (filteredCheckIns.length === 0) return [];
 
-                        // Get latest check-in to show in main row
-                        const latestCheckIn = filteredCheckIns[filteredCheckIns.length - 1];
                         const isExpanded = expandedStaff.has(s.id);
                         const hasMultipleShifts = filteredCheckIns.length > 1;
 
+                        // Get latest check-in to show in main row
+                        const latestCheckIn = filteredCheckIns[filteredCheckIns.length - 1];
+                        const hasCheckedOut = latestCheckIn.check_out_time;
+                        const endTime = hasCheckedOut && latestCheckIn.check_out_time
+                          ? new Date(latestCheckIn.check_out_time).getTime()
+                          : Date.now();
+                        const minutes = Math.floor((endTime - new Date(latestCheckIn.check_in_time).getTime()) / 1000 / 60);
+                        const hours = Math.floor(minutes / 60);
+                        const mins = minutes % 60;
+
+                        const mainRowData = {
+                          checkInTime: latestCheckIn.check_in_time,
+                          checkOutTime: latestCheckIn.check_out_time,
+                          workDuration: `${hours}h ${mins}m`,
+                          isWorking: latestCheckIn.status === 'success' && !latestCheckIn.check_out_time,
+                          isLate: latestCheckIn.status === 'late',
+                          hasCheckedOut: !!hasCheckedOut,
+                        };
+
                         const renderCheckInRow = (checkIn: CheckIn, isMainRow: boolean = false, shiftNumber?: number) => {
-                          const isWorking = checkIn.status === 'success';
-                          const isLate = checkIn.status === 'late';
-                          const hasCheckedOut = checkIn.check_out_time;
+                          // For main row, use mainRowData; for sub-rows, calculate from checkIn
+                          const isWorking = isMainRow ? mainRowData.isWorking : checkIn.status === 'success';
+                          const isLate = isMainRow ? mainRowData.isLate : checkIn.status === 'late';
+                          const hasCheckedOut = isMainRow ? mainRowData.hasCheckedOut : !!checkIn.check_out_time;
 
                           let workDuration = '';
-                          if (checkIn) {
-                            const endTime = hasCheckedOut && checkIn.check_out_time
+                          let checkInTimeToShow = '';
+                          let checkOutTimeToShow = '';
+
+                          if (isMainRow) {
+                            workDuration = mainRowData.workDuration;
+                            checkInTimeToShow = mainRowData.checkInTime;
+                            checkOutTimeToShow = mainRowData.checkOutTime || '';
+                          } else {
+                            const endTime = checkIn.check_out_time
                               ? new Date(checkIn.check_out_time).getTime()
                               : Date.now();
                             const minutes = Math.floor((endTime - new Date(checkIn.check_in_time).getTime()) / 1000 / 60);
                             const hours = Math.floor(minutes / 60);
                             const mins = minutes % 60;
                             workDuration = `${hours}h ${mins}m`;
+                            checkInTimeToShow = checkIn.check_in_time;
+                            checkOutTimeToShow = checkIn.check_out_time || '';
                           }
 
                           return (
@@ -498,14 +527,14 @@ export default function StoreDetail() {
                                 </div>
                               </td>
                               <td className="px-4 py-3 text-sm text-gray-700">
-                                {new Date(checkIn.check_in_time).toLocaleTimeString('vi-VN', {
+                                {new Date(checkInTimeToShow).toLocaleTimeString('vi-VN', {
                                   hour: '2-digit',
                                   minute: '2-digit'
                                 })}
                               </td>
                               <td className="px-4 py-3 text-sm text-gray-700">
-                                {hasCheckedOut && checkIn.check_out_time ? (
-                                  new Date(checkIn.check_out_time).toLocaleTimeString('vi-VN', {
+                                {hasCheckedOut && checkOutTimeToShow ? (
+                                  new Date(checkOutTimeToShow).toLocaleTimeString('vi-VN', {
                                     hour: '2-digit',
                                     minute: '2-digit'
                                   })
