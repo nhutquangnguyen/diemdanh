@@ -39,6 +39,12 @@ export default function StoreReport() {
   const [sortColumn, setSortColumn] = useState<keyof StaffReport | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
+  // Details section state
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [checkInsData, setCheckInsData] = useState<CheckIn[]>([]);
+  const [staffData, setStaffData] = useState<Staff[]>([]);
+
   // Calculate date range based on period type
   function getDateRange(): { start: Date; end: Date } {
     const now = new Date();
@@ -88,16 +94,17 @@ export default function StoreReport() {
       setStore(storeData);
 
       // Load staff
-      const { data: staffData, error: staffError } = await supabase
+      const { data: staffDataResult, error: staffError } = await supabase
         .from('staff')
         .select('*')
         .eq('store_id', storeId);
 
       if (staffError) throw staffError;
+      setStaffData(staffDataResult || []);
 
       // Load check-ins for the period
       const { start, end } = getDateRange();
-      const { data: checkInsData, error: checkInsError } = await supabase
+      const { data: checkInsDataResult, error: checkInsError } = await supabase
         .from('check_ins')
         .select('*')
         .eq('store_id', storeId)
@@ -106,10 +113,11 @@ export default function StoreReport() {
         .order('check_in_time', { ascending: true });
 
       if (checkInsError) throw checkInsError;
+      setCheckInsData(checkInsDataResult || []);
 
       // Calculate report for each staff
-      const reports: StaffReport[] = (staffData || []).map((staff) => {
-        const staffCheckIns = (checkInsData || []).filter(c => c.staff_id === staff.id);
+      const reports: StaffReport[] = (staffDataResult || []).map((staff) => {
+        const staffCheckIns = (checkInsDataResult || []).filter(c => c.staff_id === staff.id);
 
         // Count unique days (in case of multiple check-ins per day)
         const uniqueDays = new Set(
@@ -678,6 +686,194 @@ export default function StoreReport() {
             </table>
           </div>
         </div>
+
+        {/* Check-in Details Section */}
+        <div className="bg-white rounded-lg shadow-lg overflow-hidden mb-6">
+          <div
+            className="px-6 py-4 border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors"
+            onClick={() => setDetailsExpanded(!detailsExpanded)}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-800">Chi Tiết Điểm Danh</h2>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-gray-600">
+                  {checkInsData.length} lượt điểm danh
+                </span>
+                <svg
+                  className={`w-5 h-5 text-gray-600 transition-transform ${detailsExpanded ? 'rotate-180' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          {detailsExpanded && (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Ngày
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Nhân viên
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Ca
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Giờ vào
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Ảnh vào
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Giờ ra
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Ảnh ra
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {checkInsData.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                        Không có dữ liệu trong kỳ báo cáo này
+                      </td>
+                    </tr>
+                  ) : (
+                    (() => {
+                      // Group check-ins by staff and date to determine shift numbers
+                      const checkInsWithShift = checkInsData.map((checkIn) => {
+                        const checkInDate = new Date(checkIn.check_in_time).toDateString();
+                        const sameDay = checkInsData.filter(
+                          (c) => c.staff_id === checkIn.staff_id && new Date(c.check_in_time).toDateString() === checkInDate
+                        );
+                        const sortedSameDay = sameDay.sort(
+                          (a, b) => new Date(a.check_in_time).getTime() - new Date(b.check_in_time).getTime()
+                        );
+                        const shiftNumber = sortedSameDay.findIndex((c) => c.id === checkIn.id) + 1;
+                        return { ...checkIn, shiftNumber };
+                      });
+
+                      // Sort the final array by check_in_time to ensure correct display order
+                      const sortedCheckIns = checkInsWithShift.sort(
+                        (a, b) => new Date(a.check_in_time).getTime() - new Date(b.check_in_time).getTime()
+                      );
+
+                      return sortedCheckIns.map((checkIn) => {
+                        const staff = staffData.find((s) => s.id === checkIn.staff_id);
+                        const checkInDate = new Date(checkIn.check_in_time);
+                        const checkOutTime = checkIn.check_out_time ? new Date(checkIn.check_out_time) : null;
+
+                        return (
+                          <tr key={checkIn.id} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-4 py-3 text-sm text-gray-700">
+                              {checkInDate.toLocaleDateString('vi-VN', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                year: 'numeric',
+                              })}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="text-sm font-semibold text-gray-800">
+                                {staff?.full_name || 'N/A'}
+                              </div>
+                              <div className="text-xs text-gray-500">{staff?.email || ''}</div>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">
+                                Ca {checkIn.shiftNumber}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-center text-sm text-gray-700">
+                              {checkInDate.toLocaleTimeString('vi-VN', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              {checkIn.selfie_url ? (
+                                <button
+                                  onClick={() => setSelectedImage(checkIn.selfie_url)}
+                                  className="inline-block hover:opacity-80 transition-opacity"
+                                >
+                                  <img
+                                    src={checkIn.selfie_url}
+                                    alt="Check-in selfie"
+                                    className="w-20 h-20 object-cover rounded-lg border-2 border-gray-200 hover:border-purple-400 transition-colors"
+                                  />
+                                </button>
+                              ) : (
+                                <span className="text-xs text-gray-400">-</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-center text-sm text-gray-700">
+                              {checkOutTime ? (
+                                checkOutTime.toLocaleTimeString('vi-VN', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
+                              ) : (
+                                <span className="text-xs text-gray-400">Chưa checkout</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              {checkIn.checkout_selfie_url ? (
+                                <button
+                                  onClick={() => setSelectedImage(checkIn.checkout_selfie_url!)}
+                                  className="inline-block hover:opacity-80 transition-opacity"
+                                >
+                                  <img
+                                    src={checkIn.checkout_selfie_url}
+                                    alt="Check-out selfie"
+                                    className="w-20 h-20 object-cover rounded-lg border-2 border-gray-200 hover:border-purple-400 transition-colors"
+                                  />
+                                </button>
+                              ) : (
+                                <span className="text-xs text-gray-400">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      });
+                    })()
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Image Modal */}
+        {selectedImage && (
+          <div
+            className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4"
+            onClick={() => setSelectedImage(null)}
+          >
+            <div className="relative max-w-4xl max-h-full">
+              <button
+                onClick={() => setSelectedImage(null)}
+                className="absolute -top-10 right-0 text-white hover:text-gray-300 transition-colors"
+              >
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+              <img
+                src={selectedImage}
+                alt="Full size selfie"
+                className="max-w-full max-h-[90vh] object-contain rounded-lg"
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Notes */}
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">

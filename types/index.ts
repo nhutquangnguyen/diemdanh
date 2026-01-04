@@ -46,6 +46,7 @@ export interface CheckIn {
   check_out_longitude?: number;
   check_out_distance_meters?: number;
   selfie_url: string;
+  checkout_selfie_url?: string;
   status: 'success' | 'late' | 'wrong_location';
   created_at: string;
 }

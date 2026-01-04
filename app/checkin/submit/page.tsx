@@ -317,6 +317,30 @@ function CheckInContent() {
       // Check if there's an active check-in (not checked out yet)
       if (activeCheckIn) {
         // This is a check-out - update existing record
+        let checkoutSelfieUrl = null;
+
+        // Upload checkout selfie if required
+        if (storeInfo.selfie_required && selfieImage) {
+          const compressedImage = await compressImage(selfieImage, 1024, 1024, 0.85);
+          const fileName = `checkout-${staffId}-${Date.now()}.jpg`;
+          const base64Data = compressedImage.split(',')[1];
+          const blob = await fetch(`data:image/jpeg;base64,${base64Data}`).then(r => r.blob());
+
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('selfies')
+            .upload(fileName, blob, {
+              contentType: 'image/jpeg',
+            });
+
+          if (uploadError) throw uploadError;
+
+          const { data: { publicUrl } } = supabase.storage
+            .from('selfies')
+            .getPublicUrl(fileName);
+
+          checkoutSelfieUrl = publicUrl;
+        }
+
         const { error: updateError } = await supabase
           .from('check_ins')
           .update({
@@ -324,6 +348,7 @@ function CheckInContent() {
             check_out_latitude: location.latitude,
             check_out_longitude: location.longitude,
             check_out_distance_meters: distance,
+            checkout_selfie_url: checkoutSelfieUrl,
           })
           .eq('id', activeCheckIn.id);
 
@@ -341,6 +366,30 @@ function CheckInContent() {
         setIsCheckOut(true);
       } else if (actionType === 're-checkout' && lastCompletedCheckIn) {
         // This is a re-checkout - update the check-out time of last completed session
+        let checkoutSelfieUrl = null;
+
+        // Upload checkout selfie if required
+        if (storeInfo.selfie_required && selfieImage) {
+          const compressedImage = await compressImage(selfieImage, 1024, 1024, 0.85);
+          const fileName = `checkout-${staffId}-${Date.now()}.jpg`;
+          const base64Data = compressedImage.split(',')[1];
+          const blob = await fetch(`data:image/jpeg;base64,${base64Data}`).then(r => r.blob());
+
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('selfies')
+            .upload(fileName, blob, {
+              contentType: 'image/jpeg',
+            });
+
+          if (uploadError) throw uploadError;
+
+          const { data: { publicUrl } } = supabase.storage
+            .from('selfies')
+            .getPublicUrl(fileName);
+
+          checkoutSelfieUrl = publicUrl;
+        }
+
         const { error: updateError } = await supabase
           .from('check_ins')
           .update({
@@ -348,6 +397,7 @@ function CheckInContent() {
             check_out_latitude: location.latitude,
             check_out_longitude: location.longitude,
             check_out_distance_meters: distance,
+            checkout_selfie_url: checkoutSelfieUrl,
           })
           .eq('id', lastCompletedCheckIn.id);
 
