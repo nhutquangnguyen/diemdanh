@@ -29,6 +29,7 @@ export default function StoreDetail() {
   // Filter state for staff overview
   const [staffFilter, setStaffFilter] = useState<'all' | 'working' | 'late' | 'not_checked'>('all');
   const [staffSearch, setStaffSearch] = useState('');
+  const [expandedStaff, setExpandedStaff] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadStoreData();
@@ -164,6 +165,18 @@ export default function StoreDetail() {
         element.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     }, 100);
+  }
+
+  function toggleStaffExpand(staffId: string) {
+    setExpandedStaff(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(staffId)) {
+        newSet.delete(staffId);
+      } else {
+        newSet.add(staffId);
+      }
+      return newSet;
+    });
   }
 
   // Calculate today's stats
@@ -377,15 +390,15 @@ export default function StoreDetail() {
                           return true; // 'all'
                         });
 
+                        const initials = s.full_name
+                          ?.split(' ')
+                          .slice(-2)
+                          .map((n: string) => n[0])
+                          .join('')
+                          .toUpperCase() || '??';
+
                         // If no check-ins and filter is 'not_checked' or 'all', show the staff
                         if (staffCheckIns.length === 0 && (staffFilter === 'not_checked' || staffFilter === 'all')) {
-                          const initials = s.full_name
-                            ?.split(' ')
-                            .slice(-2)
-                            .map((n: string) => n[0])
-                            .join('')
-                            .toUpperCase() || '??';
-
                           return [(
                             <tr key={`${s.id}-no-checkin`} className="hover:bg-gray-50 transition-colors">
                               <td className="px-4 py-3">
@@ -417,21 +430,20 @@ export default function StoreDetail() {
                           )];
                         }
 
-                        // Show a row for each check-in
-                        return filteredCheckIns.map((checkIn: CheckIn, index: number) => {
+                        if (filteredCheckIns.length === 0) return [];
+
+                        // Get latest check-in to show in main row
+                        const latestCheckIn = filteredCheckIns[filteredCheckIns.length - 1];
+                        const isExpanded = expandedStaff.has(s.id);
+                        const hasMultipleShifts = filteredCheckIns.length > 1;
+
+                        const renderCheckInRow = (checkIn: CheckIn, isMainRow: boolean = false, shiftNumber?: number) => {
                           const isWorking = checkIn.status === 'success';
                           const isLate = checkIn.status === 'late';
-                          const initials = s.full_name
-                            ?.split(' ')
-                            .slice(-2)
-                            .map((n: string) => n[0])
-                            .join('')
-                            .toUpperCase() || '??';
+                          const hasCheckedOut = checkIn.check_out_time;
 
                           let workDuration = '';
-                          const hasCheckedOut = checkIn.check_out_time;
                           if (checkIn) {
-                            // Calculate duration: if checked out, use check-out time; otherwise use current time
                             const endTime = hasCheckedOut && checkIn.check_out_time
                               ? new Date(checkIn.check_out_time).getTime()
                               : Date.now();
@@ -442,25 +454,47 @@ export default function StoreDetail() {
                           }
 
                           return (
-                            <tr key={`${s.id}-${checkIn.id}`} className="hover:bg-gray-50 transition-colors">
+                            <tr
+                              key={isMainRow ? `${s.id}-main` : `${s.id}-${checkIn.id}`}
+                              className={`${isMainRow ? 'hover:bg-gray-50' : 'bg-gray-50/50'} transition-colors ${isMainRow && hasMultipleShifts ? 'cursor-pointer' : ''}`}
+                              onClick={isMainRow && hasMultipleShifts ? () => toggleStaffExpand(s.id) : undefined}
+                            >
                               <td className="px-4 py-3">
-                                <div className="flex items-center gap-3">
-                                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm ${
-                                    isWorking ? 'bg-gradient-to-br from-green-500 to-green-600' :
-                                    isLate ? 'bg-gradient-to-br from-yellow-500 to-yellow-600' :
-                                    'bg-gradient-to-br from-gray-400 to-gray-500'
-                                  }`}>
-                                    {initials}
-                                  </div>
-                                  <div>
-                                    <div className="font-semibold text-gray-800">
-                                      {s.full_name}
-                                      {filteredCheckIns.length > 1 && (
-                                        <span className="ml-2 text-xs text-gray-500">Ca {index + 1}</span>
-                                      )}
+                                <div className={`flex items-center gap-3 ${!isMainRow ? 'pl-12' : ''}`}>
+                                  {isMainRow ? (
+                                    <>
+                                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm ${
+                                        isWorking ? 'bg-gradient-to-br from-green-500 to-green-600' :
+                                        isLate ? 'bg-gradient-to-br from-yellow-500 to-yellow-600' :
+                                        'bg-gradient-to-br from-gray-400 to-gray-500'
+                                      }`}>
+                                        {initials}
+                                      </div>
+                                      <div className="flex-1">
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-semibold text-gray-800">{s.full_name}</span>
+                                          {hasMultipleShifts && (
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">
+                                              {filteredCheckIns.length} ca
+                                              <svg
+                                                className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                                                fill="none"
+                                                stroke="currentColor"
+                                                viewBox="0 0 24 24"
+                                              >
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                              </svg>
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="text-xs text-gray-500">{s.email}</div>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <div className="text-sm text-gray-600">
+                                      Ca {shiftNumber}
                                     </div>
-                                    <div className="text-xs text-gray-500">{s.email}</div>
-                                  </div>
+                                  )}
                                 </div>
                               </td>
                               <td className="px-4 py-3 text-sm text-gray-700">
@@ -504,7 +538,18 @@ export default function StoreDetail() {
                               </td>
                             </tr>
                           );
-                        });
+                        };
+
+                        // Render main row + expanded rows
+                        const rows = [renderCheckInRow(latestCheckIn, true)];
+
+                        if (isExpanded && hasMultipleShifts) {
+                          filteredCheckIns.forEach((checkIn, index) => {
+                            rows.push(renderCheckInRow(checkIn, false, index + 1));
+                          });
+                        }
+
+                        return rows;
                       })}
                   </tbody>
                 </table>
