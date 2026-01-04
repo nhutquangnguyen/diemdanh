@@ -129,12 +129,21 @@ export default function StoreReport() {
         // Calculate total late minutes (mock for now - would need shift start times)
         const lateMinutes = lateDays * 15; // Assume 15 min average late
 
-        // Calculate total hours worked
+        // Calculate total hours worked based on check-in and check-out times
         let totalHours = 0;
         staffCheckIns.forEach(checkIn => {
-          // Mock: assume 8 hours per check-in (would need check-out times)
-          totalHours += 8;
+          if (checkIn.check_out_time) {
+            // Calculate actual work duration
+            const checkInTime = new Date(checkIn.check_in_time).getTime();
+            const checkOutTime = new Date(checkIn.check_out_time).getTime();
+            const durationHours = (checkOutTime - checkInTime) / (1000 * 60 * 60);
+            totalHours += durationHours;
+          }
+          // If no check-out time, don't count any hours (incomplete session)
         });
+
+        // Round to 1 decimal place
+        totalHours = Math.round(totalHours * 10) / 10;
 
         // Calculate on-time days
         const onTimeDays = presentDays - lateDays;

@@ -169,7 +169,7 @@ export default function StoreDetail() {
   // Calculate today's stats
   const today = new Date().toDateString();
   const todayCheckIns = checkIns.filter(c => new Date(c.check_in_time).toDateString() === today);
-  const currentlyWorking = todayCheckIns.filter(c => c.status === 'success'); // All successful check-ins for today
+  const currentlyWorking = todayCheckIns.filter(c => c.status === 'success' && !c.check_out_time); // Checked in but not checked out
   const notCheckedIn = staff.length - todayCheckIns.length;
 
   // Calculate average time (mock for now - would need check-out times)
@@ -360,9 +360,9 @@ export default function StoreDetail() {
                         // Filter by status
                         const todayCheckIn = todayCheckIns.find((c: CheckIn) => c.staff_id === s.id);
                         if (staffFilter === 'working') {
-                          return todayCheckIn && todayCheckIn.status === 'success';
+                          return todayCheckIn && todayCheckIn.status === 'success' && !todayCheckIn.check_out_time;
                         } else if (staffFilter === 'late') {
-                          return todayCheckIn && todayCheckIn.status === 'late';
+                          return todayCheckIn && todayCheckIn.status === 'late' && !todayCheckIn.check_out_time;
                         } else if (staffFilter === 'not_checked') {
                           return !todayCheckIn;
                         }
@@ -385,8 +385,13 @@ export default function StoreDetail() {
                           .toUpperCase() || '??';
 
                         let workDuration = '';
+                        const hasCheckedOut = todayCheckIn?.check_out_time;
                         if (todayCheckIn) {
-                          const minutes = Math.floor((Date.now() - new Date(todayCheckIn.check_in_time).getTime()) / 1000 / 60);
+                          // Calculate duration: if checked out, use check-out time; otherwise use current time
+                          const endTime = hasCheckedOut && todayCheckIn.check_out_time
+                            ? new Date(todayCheckIn.check_out_time).getTime()
+                            : Date.now();
+                          const minutes = Math.floor((endTime - new Date(todayCheckIn.check_in_time).getTime()) / 1000 / 60);
                           const hours = Math.floor(minutes / 60);
                           const mins = minutes % 60;
                           workDuration = `${hours}h ${mins}m`;
@@ -420,24 +425,35 @@ export default function StoreDetail() {
                               )}
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-700">
-                              <span className="text-gray-400">--:--</span>
+                              {hasCheckedOut && todayCheckIn.check_out_time ? (
+                                new Date(todayCheckIn.check_out_time).toLocaleTimeString('vi-VN', {
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })
+                              ) : todayCheckIn ? (
+                                <span className="text-blue-500">...</span>
+                              ) : (
+                                <span className="text-gray-400">--:--</span>
+                              )}
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-700">
                               {workDuration || <span className="text-gray-400">--</span>}
                             </td>
                             <td className="px-4 py-3">
-                              {isWorking && (
+                              {hasCheckedOut ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
+                                  ✓ Đã về
+                                </span>
+                              ) : isWorking ? (
                                 <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
                                   <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
                                   Đang làm
                                 </span>
-                              )}
-                              {isLate && (
+                              ) : isLate ? (
                                 <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700">
                                   ⚠ Muộn
                                 </span>
-                              )}
-                              {!todayCheckIn && (
+                              ) : (
                                 <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">
                                   Chưa điểm danh
                                 </span>

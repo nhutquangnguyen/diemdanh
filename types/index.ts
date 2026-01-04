@@ -38,9 +38,13 @@ export interface CheckIn {
   staff_id: string;
   store_id: string;
   check_in_time: string;
+  check_out_time?: string;
   latitude: number;
   longitude: number;
   distance_meters: number;
+  check_out_latitude?: number;
+  check_out_longitude?: number;
+  check_out_distance_meters?: number;
   selfie_url: string;
   status: 'success' | 'late' | 'wrong_location';
   created_at: string;

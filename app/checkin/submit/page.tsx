@@ -25,6 +25,7 @@ function CheckInContent() {
   const [currentLocation, setCurrentLocation] = useState<any>(null);
   const [distance, setDistance] = useState<number>(0);
   const [isWithinRadius, setIsWithinRadius] = useState(false);
+  const [activeCheckIn, setActiveCheckIn] = useState<any>(null);
 
   useEffect(() => {
     checkAuthAndLoad();
@@ -73,6 +74,43 @@ function CheckInContent() {
     }
   }
 
+  async function checkForActiveCheckIn(storeId: string, currentUser: any) {
+    try {
+      // Get staff record first
+      const { data: staffRecord } = await supabase
+        .from('staff')
+        .select('id')
+        .eq('email', currentUser.email)
+        .eq('store_id', storeId)
+        .single();
+
+      if (!staffRecord) return;
+
+      // Check for active check-in (no check_out_time)
+      const today = new Date().toISOString().split('T')[0];
+      const { data: activeCheckInData } = await supabase
+        .from('check_ins')
+        .select('*')
+        .eq('staff_id', staffRecord.id)
+        .eq('store_id', storeId)
+        .gte('check_in_time', `${today}T00:00:00`)
+        .is('check_out_time', null)
+        .order('check_in_time', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (activeCheckInData) {
+        setActiveCheckIn(activeCheckInData);
+        setIsCheckOut(true);
+      } else {
+        setActiveCheckIn(null);
+        setIsCheckOut(false);
+      }
+    } catch (error) {
+      console.error('Error checking active check-in:', error);
+    }
+  }
+
   async function loadStoreInfo(storeId: string, currentUser: any) {
     try {
       const { data, error} = await supabase
@@ -117,6 +155,9 @@ function CheckInContent() {
           return;
         }
       }
+
+      // Check for active check-in (not checked out yet)
+      await checkForActiveCheckIn(storeId, currentUser);
 
       setStep('info');
     } catch (error) {
@@ -244,88 +285,86 @@ function CheckInContent() {
         }
       }
 
-      // Get all check-ins for today to determine if this is first or subsequent scan
-      const today = new Date().toISOString().split('T')[0];
-      const { data: todayCheckIns, error: checkInsError } = await supabase
-        .from('check_ins')
-        .select('*')
-        .eq('staff_id', staffId)
-        .eq('store_id', storeInfo.id)
-        .gte('check_in_time', `${today}T00:00:00`)
-        .lte('check_in_time', `${today}T23:59:59`)
-        .order('check_in_time', { ascending: true });
-
-      if (checkInsError) throw checkInsError;
-
-      let publicUrl = '';
-
-      // Upload selfie to storage only if required
-      if (storeInfo.selfie_required && selfieImage) {
-        // Compress image before upload
-        const originalSize = getBase64Size(selfieImage);
-        console.log('Original image size:', originalSize, 'KB');
-
-        const compressedImage = await compressImage(selfieImage, 1024, 1024, 0.85);
-        const compressedSize = getBase64Size(compressedImage);
-        console.log('Compressed image size:', compressedSize, 'KB');
-        console.log('Compression ratio:', ((1 - compressedSize / originalSize) * 100).toFixed(1) + '%');
-
-        const fileName = `${staffId}-${Date.now()}.jpg`;
-        const base64Data = compressedImage.split(',')[1];
-        const blob = await fetch(`data:image/jpeg;base64,${base64Data}`).then(r => r.blob());
-
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('selfies')
-          .upload(fileName, blob, {
-            contentType: 'image/jpeg',
-          });
-
-        if (uploadError) throw uploadError;
-
-        // Get public URL
-        const { data: { publicUrl: url } } = supabase.storage
-          .from('selfies')
-          .getPublicUrl(fileName);
-
-        publicUrl = url;
-      }
-
       const currentTime = new Date();
-      const isFirstScan = !todayCheckIns || todayCheckIns.length === 0;
 
-      // Always insert a new record for each scan
-      const { error: insertError } = await supabase
-        .from('check_ins')
-        .insert([
-          {
-            staff_id: staffId,
-            store_id: storeInfo.id,
-            latitude: location.latitude,
-            longitude: location.longitude,
-            distance_meters: distance,
-            selfie_url: publicUrl || null,
-            status: 'success',
-          },
-        ]);
+      // Check if there's an active check-in (not checked out yet)
+      if (activeCheckIn) {
+        // This is a check-out - update existing record
+        const { error: updateError } = await supabase
+          .from('check_ins')
+          .update({
+            check_out_time: currentTime.toISOString(),
+            check_out_latitude: location.latitude,
+            check_out_longitude: location.longitude,
+            check_out_distance_meters: distance,
+          })
+          .eq('id', activeCheckIn.id);
 
-      if (insertError) throw insertError;
+        if (updateError) throw updateError;
 
-      // Calculate duration if not first scan (max time - min time)
-      let durationText = '';
-      if (!isFirstScan && todayCheckIns.length > 0) {
-        const firstCheckIn = new Date(todayCheckIns[0].check_in_time);
-        const durationMin = Math.floor((currentTime.getTime() - firstCheckIn.getTime()) / 1000 / 60);
-
+        // Calculate duration
+        const checkInTime = new Date(activeCheckIn.check_in_time);
+        const durationMin = Math.floor((currentTime.getTime() - checkInTime.getTime()) / 1000 / 60);
         const hours = Math.floor(durationMin / 60);
         const minutes = durationMin % 60;
-        durationText = `${hours} giờ ${minutes} phút`;
+        const durationText = `${hours} giờ ${minutes} phút`;
 
-        setIsCheckOut(true);
-        setCheckInTime(firstCheckIn.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }));
+        setCheckInTime(checkInTime.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }));
         setDuration(durationText);
+        setIsCheckOut(true);
       } else {
-        setIsCheckOut(false);
+        // This is a check-in - insert new record
+        let publicUrl = '';
+
+        // Upload selfie to storage only if required
+        if (storeInfo.selfie_required && selfieImage) {
+          // Compress image before upload
+          const originalSize = getBase64Size(selfieImage);
+          console.log('Original image size:', originalSize, 'KB');
+
+          const compressedImage = await compressImage(selfieImage, 1024, 1024, 0.85);
+          const compressedSize = getBase64Size(compressedImage);
+          console.log('Compressed image size:', compressedSize, 'KB');
+          console.log('Compression ratio:', ((1 - compressedSize / originalSize) * 100).toFixed(1) + '%');
+
+          const fileName = `${staffId}-${Date.now()}.jpg`;
+          const base64Data = compressedImage.split(',')[1];
+          const blob = await fetch(`data:image/jpeg;base64,${base64Data}`).then(r => r.blob());
+
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('selfies')
+            .upload(fileName, blob, {
+              contentType: 'image/jpeg',
+            });
+
+          if (uploadError) throw uploadError;
+
+          // Get public URL
+          const { data: { publicUrl: url } } = supabase.storage
+            .from('selfies')
+            .getPublicUrl(fileName);
+
+          publicUrl = url;
+        }
+
+        const { error: insertError } = await supabase
+          .from('check_ins')
+          .insert([
+            {
+              staff_id: staffId,
+              store_id: storeInfo.id,
+              latitude: location.latitude,
+              longitude: location.longitude,
+              distance_meters: distance,
+              selfie_url: publicUrl || null,
+              status: 'success',
+            },
+          ]);
+
+        if (insertError) throw insertError;
+
         setCheckInTime(currentTime.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }));
+        setIsCheckOut(false);
       }
 
       setStep('success');
@@ -387,21 +426,49 @@ function CheckInContent() {
               </div>
             </div>
 
+            {/* Show check-in time if already checked in */}
+            {isCheckOut && activeCheckIn && (
+              <div className="bg-green-50 border border-green-200 p-4 rounded-lg mb-6">
+                <div className="flex items-center gap-2 mb-2">
+                  <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span className="font-semibold text-green-700">Đã Check-in</span>
+                </div>
+                <p className="text-sm text-gray-600">
+                  Thời gian vào: {new Date(activeCheckIn.check_in_time).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              </div>
+            )}
+
             <button
               type="button"
               onClick={handleStartCheckIn}
               disabled={storeInfo.gps_required && !isWithinRadius}
               className={`w-full px-6 py-4 rounded-lg font-semibold text-lg transition-all flex items-center justify-center gap-2 ${
                 (!storeInfo.gps_required || isWithinRadius)
-                  ? 'bg-green-600 hover:bg-green-700 text-white cursor-pointer'
+                  ? isCheckOut
+                    ? 'bg-red-600 hover:bg-red-700 text-white cursor-pointer'
+                    : 'bg-green-600 hover:bg-green-700 text-white cursor-pointer'
                   : 'bg-gray-300 text-gray-500 cursor-not-allowed'
               }`}
             >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              {storeInfo.selfie_required ? 'Bắt Đầu Quét' : 'Xác Nhận Điểm Danh'}
+              {isCheckOut ? (
+                <>
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                  </svg>
+                  {storeInfo.selfie_required ? 'Bắt Đầu Check-out' : 'Xác Nhận Check-out'}
+                </>
+              ) : (
+                <>
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  {storeInfo.selfie_required ? 'Bắt Đầu Check-in' : 'Xác Nhận Check-in'}
+                </>
+              )}
             </button>
           </div>
         )}
@@ -484,17 +551,17 @@ function CheckInContent() {
             </div>
 
             {!isCheckOut ? (
-              // First scan of the day
+              // Check-in success
               <>
                 <h2 className="text-3xl font-bold text-gray-800 mb-4">
-                  Điểm Danh Thành Công!
+                  Check-in Thành Công!
                 </h2>
                 <div className="bg-blue-50 rounded-lg p-6 mb-6">
                   <p className="text-lg text-gray-700 mb-2">
-                    <span className="font-semibold">Lần quét đầu tiên:</span> {checkInTime}
+                    <span className="font-semibold">Thời gian vào:</span> {checkInTime}
                   </p>
                   <p className="text-sm text-gray-500">
-                    Quét mã QR mỗi lần vào/ra để ghi lại tất cả hoạt động
+                    Nhớ quét mã QR khi ra về để ghi lại thời gian làm việc
                   </p>
                 </div>
                 <p className="text-gray-600 mb-8">
@@ -502,31 +569,31 @@ function CheckInContent() {
                 </p>
               </>
             ) : (
-              // Subsequent scans - show duration from first scan
+              // Check-out success - show work duration
               <>
                 <h2 className="text-3xl font-bold text-gray-800 mb-4">
-                  Quét Thành Công!
+                  Check-out Thành Công!
                 </h2>
                 <div className="bg-green-50 rounded-lg p-6 mb-6">
                   <div className="grid grid-cols-2 gap-4 mb-4">
                     <div className="text-left">
-                      <p className="text-sm text-gray-500">Lần quét đầu</p>
+                      <p className="text-sm text-gray-500">Giờ vào</p>
                       <p className="text-lg font-semibold text-gray-700">{checkInTime}</p>
                     </div>
                     <div className="text-left">
-                      <p className="text-sm text-gray-500">Lần quét này</p>
+                      <p className="text-sm text-gray-500">Giờ ra</p>
                       <p className="text-lg font-semibold text-gray-700">
                         {new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
                       </p>
                     </div>
                   </div>
                   <div className="border-t pt-4">
-                    <p className="text-sm text-gray-500 mb-1">Tổng thời gian (từ lần quét đầu)</p>
+                    <p className="text-sm text-gray-500 mb-1">Tổng thời gian làm việc</p>
                     <p className="text-2xl font-bold text-green-600">{duration}</p>
                   </div>
                 </div>
                 <p className="text-gray-600 mb-8">
-                  Tất cả lần quét đã được lưu lại!
+                  Cảm ơn bạn! Hẹn gặp lại!
                 </p>
               </>
             )}
