@@ -53,11 +53,34 @@ export default function AddStaff() {
     setLoading(true);
 
     try {
-      // Check if staff already exists
+      const trimmedEmail = email.trim().toLowerCase();
+
+      // Step 1: Check if this email exists in our platform by querying a safe table
+      // We'll use a database function or check staff/users indirectly
+      const { data: existingUsers, error: userCheckError } = await supabase
+        .rpc('get_user_by_email', { email_input: trimmedEmail });
+
+      if (userCheckError) {
+        // If the RPC doesn't exist, fall back to checking auth metadata
+        console.error('RPC error:', userCheckError);
+        alert('Email này chưa đăng ký tài khoản trên hệ thống. Vui lòng yêu cầu người này đăng ký tài khoản trước.');
+        setLoading(false);
+        return;
+      }
+
+      if (!existingUsers || existingUsers.length === 0) {
+        alert('Email này chưa đăng ký tài khoản trên hệ thống. Vui lòng yêu cầu người này đăng ký tài khoản trước.');
+        setLoading(false);
+        return;
+      }
+
+      const registeredUser = existingUsers[0];
+
+      // Step 2: Check if staff already exists in this store
       const { data: existingStaff } = await supabase
         .from('staff')
         .select('id')
-        .eq('email', email)
+        .eq('email', trimmedEmail)
         .eq('store_id', storeId)
         .single();
 
@@ -67,15 +90,16 @@ export default function AddStaff() {
         return;
       }
 
-      // Add staff with email only
+      // Step 3: Add staff with data from registered user
       const { error } = await supabase
         .from('staff')
         .insert([
           {
             store_id: storeId,
-            email: email,
-            full_name: email.split('@')[0], // Use email prefix as name
-            phone: null,
+            user_id: registeredUser.id,
+            email: trimmedEmail,
+            full_name: registeredUser.full_name || trimmedEmail.split('@')[0],
+            phone: registeredUser.phone || null,
           },
         ]);
 
@@ -98,8 +122,11 @@ export default function AddStaff() {
       <main className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="bg-white rounded-lg shadow-lg p-8">
           <div className="mb-6">
+            <h2 className="text-2xl font-bold text-gray-800 mb-2">
+              Thêm Nhân Viên
+            </h2>
             <p className="text-gray-600">
-              Thêm email nhân viên. Chỉ những email trong danh sách mới có thể điểm danh.
+              Chỉ thêm được email đã đăng ký tài khoản trên hệ thống. Những email trong danh sách mới có thể điểm danh.
             </p>
           </div>
 
@@ -117,7 +144,7 @@ export default function AddStaff() {
                 placeholder="nhanvien@example.com"
               />
               <p className="text-sm text-gray-500 mt-1">
-                Nhân viên dùng email này để điểm danh
+                Email phải đã đăng ký tài khoản trên diemdanh.net
               </p>
             </div>
 

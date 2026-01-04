@@ -16,6 +16,7 @@ export interface Store {
 
 export interface Staff {
   id: string;
+  user_id: string;
   email: string;
   full_name: string;
   phone: string;
