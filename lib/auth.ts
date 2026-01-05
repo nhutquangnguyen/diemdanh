@@ -30,9 +30,30 @@ export async function signOut() {
   if (error) throw error;
 }
 
+// Fast synchronous check from localStorage
+export function getCurrentUserSync() {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const stored = localStorage.getItem('diemdanh-auth');
+    if (!stored) return null;
+
+    const data = JSON.parse(stored);
+    // Check if session is expired
+    if (data?.expires_at && data.expires_at * 1000 < Date.now()) {
+      return null;
+    }
+
+    return data?.user || null;
+  } catch {
+    return null;
+  }
+}
+
+// Async verification (validates token)
 export async function getCurrentUser() {
-  const { data: { user } } = await supabase.auth.getUser();
-  return user;
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.user || null;
 }
 
 export async function getUserMetadata() {

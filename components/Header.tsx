@@ -3,17 +3,42 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getCurrentUser, signOut } from '@/lib/auth';
+import { getCurrentUser, getCurrentUserSync, signOut } from '@/lib/auth';
 
 export default function Header() {
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  // Initialize with sync check (instant, 0ms)
+  const [user, setUser] = useState<any>(getCurrentUserSync());
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    checkAuth();
+    let mounted = true;
+
+    async function verifyAuth() {
+      try {
+        const startTime = performance.now();
+        const currentUser = await getCurrentUser();
+        const endTime = performance.now();
+        console.log(`Header: Async verification took ${(endTime - startTime).toFixed(2)}ms`);
+
+        if (mounted) {
+          setUser(currentUser);
+        }
+      } catch (error) {
+        console.error('Header auth verification failed:', error);
+        if (mounted) {
+          setUser(null);
+        }
+      }
+    }
+
+    // Verify in background
+    verifyAuth();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -28,12 +53,6 @@ export default function Header() {
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [dropdownOpen]);
-
-  async function checkAuth() {
-    const currentUser = await getCurrentUser();
-    setUser(currentUser);
-    setLoading(false);
-  }
 
   async function handleSignOut() {
     await signOut();
@@ -61,9 +80,7 @@ export default function Header() {
             </h1>
           </Link>
           <div className="flex items-center gap-2 sm:gap-4">
-            {!loading && (
-              <>
-                {user ? (
+            {user ? (
                   <div className="relative" ref={dropdownRef}>
                     {/* Avatar Button */}
                     <button
@@ -139,8 +156,6 @@ export default function Header() {
                     </Link>
                   </>
                 )}
-              </>
-            )}
           </div>
         </div>
       </div>

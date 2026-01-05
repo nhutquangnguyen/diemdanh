@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Header from '@/components/Header';
 import { supabase } from '@/lib/supabase';
+import { getCurrentUserSync } from '@/lib/auth';
 import { Store } from '@/types';
 
 export default function Home() {
@@ -12,27 +13,48 @@ export default function Home() {
   const [showStoreModal, setShowStoreModal] = useState(false);
   const [myStores, setMyStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(false);
-  const [user, setUser] = useState<any>(null);
-  const [loadingUser, setLoadingUser] = useState(true);
+  // Initialize with instant sync check
+  const [user, setUser] = useState<any>(getCurrentUserSync());
   const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
-    checkUser();
+    let mounted = true;
 
-    // Listen for auth state changes (login/logout)
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, _session) => {
-      if (event === 'SIGNED_OUT') {
-        setUser(null);
-      } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+    async function verifyAuth() {
+      try {
         const { getCurrentUser } = await import('@/lib/auth');
         const currentUser = await getCurrentUser();
-        setUser(currentUser);
+        if (mounted) {
+          setUser(currentUser);
+        }
+      } catch (error) {
+        console.error('Error verifying user:', error);
+        if (mounted) {
+          setUser(null);
+        }
+      }
+    }
+
+    // Verify in background
+    verifyAuth();
+
+    // Listen for auth state changes (login/logout)
+    const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth event:', event);
+
+      if (!mounted) return;
+
+      if (event === 'SIGNED_OUT') {
+        setUser(null);
+      } else if (event === 'SIGNED_IN') {
+        setUser(session?.user || null);
       }
     });
 
-    // Cleanup subscription on unmount
+    // Cleanup
     return () => {
-      authListener.subscription.unsubscribe();
+      mounted = false;
+      data.subscription.unsubscribe();
     };
   }, []);
 
@@ -45,17 +67,6 @@ export default function Home() {
     return () => clearInterval(timer);
   }, []);
 
-  async function checkUser() {
-    try {
-      const { getCurrentUser } = await import('@/lib/auth');
-      const currentUser = await getCurrentUser();
-      setUser(currentUser);
-    } catch (error) {
-      console.error('Error checking user:', error);
-    } finally {
-      setLoadingUser(false);
-    }
-  }
 
   async function handleCheckInClick() {
     setLoading(true);
@@ -113,14 +124,6 @@ export default function Home() {
 
   const { day, time } = getCurrentGreeting();
   const firstName = user?.full_name?.split(' ').slice(-1)[0] || user?.email?.split('@')[0];
-
-  if (loadingUser) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex flex-col">
