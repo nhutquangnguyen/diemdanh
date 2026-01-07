@@ -31,6 +31,10 @@ export default function StoreDetail() {
   const [staffSearch, setStaffSearch] = useState('');
   const [expandedStaff, setExpandedStaff] = useState<Set<string>>(new Set());
 
+  // Edit staff hour rate state
+  const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
+  const [editHourRate, setEditHourRate] = useState<string>('');
+
   useEffect(() => {
     loadStoreData();
     // Auto-refresh every 30 seconds
@@ -54,6 +58,31 @@ export default function StoreDetail() {
     } catch (error) {
       console.error('Error deleting staff:', error);
       alert('Lỗi khi xóa nhân viên');
+    }
+  }
+
+  async function updateStaffHourRate(staffId: string) {
+    try {
+      const rate = parseFloat(editHourRate);
+      if (isNaN(rate) || rate < 0) {
+        alert('Vui lòng nhập số hợp lệ');
+        return;
+      }
+
+      const { error } = await supabase
+        .from('staff')
+        .update({ hour_rate: rate })
+        .eq('id', staffId);
+
+      if (error) throw error;
+
+      alert('Đã cập nhật lương giờ');
+      setEditingStaffId(null);
+      setEditHourRate('');
+      loadStoreData();
+    } catch (error) {
+      console.error('Error updating hour rate:', error);
+      alert('Lỗi khi cập nhật lương giờ');
     }
   }
 
@@ -626,28 +655,73 @@ export default function StoreDetail() {
               ) : (
                 <div className="space-y-2">
                   {staff.map((member) => (
-                    <div key={member.id} className="bg-gray-50 rounded-lg p-4 flex items-center justify-between hover:bg-gray-100 transition-all">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white font-bold shadow">
-                          {member.full_name?.split(' ').slice(-2).map(n => n[0]).join('').toUpperCase() || '??'}
+                    <div key={member.id} className="bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition-all">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white font-bold shadow">
+                            {member.full_name?.split(' ').slice(-2).map(n => n[0]).join('').toUpperCase() || '??'}
+                          </div>
+                          <div>
+                            <p className="font-semibold text-gray-800">{member.full_name}</p>
+                            <p className="text-sm text-gray-600">{member.email}</p>
+                            {member.phone && (
+                              <p className="text-sm text-gray-500">{member.phone}</p>
+                            )}
+                            {editingStaffId === member.id ? (
+                              <div className="flex items-center gap-2 mt-2">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="1000"
+                                  value={editHourRate}
+                                  onChange={(e) => setEditHourRate(e.target.value)}
+                                  className="w-32 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                  placeholder="VNĐ/giờ"
+                                  autoFocus
+                                />
+                                <button
+                                  onClick={() => updateStaffHourRate(member.id)}
+                                  className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm font-semibold transition-all"
+                                >
+                                  Lưu
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setEditingStaffId(null);
+                                    setEditHourRate('');
+                                  }}
+                                  className="bg-gray-300 hover:bg-gray-400 text-gray-700 px-3 py-1 rounded text-sm font-semibold transition-all"
+                                >
+                                  Hủy
+                                </button>
+                              </div>
+                            ) : (
+                              <p className="text-sm font-medium text-green-600">
+                                {new Intl.NumberFormat('vi-VN').format(member.hour_rate || 0)} VNĐ/giờ
+                              </p>
+                            )}
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-semibold text-gray-800">{member.full_name}</p>
-                          <p className="text-sm text-gray-600">{member.email}</p>
-                          {member.phone && (
-                            <p className="text-sm text-gray-500">{member.phone}</p>
+                        <div className="flex gap-2">
+                          {editingStaffId !== member.id && (
+                            <button
+                              onClick={() => {
+                                setEditingStaffId(member.id);
+                                setEditHourRate(String(member.hour_rate || 0));
+                              }}
+                              className="text-blue-600 hover:text-blue-800 font-semibold px-4 py-2 rounded-lg hover:bg-blue-50 transition-all"
+                            >
+                              Sửa lương
+                            </button>
                           )}
-                          <p className="text-sm font-medium text-green-600">
-                            {new Intl.NumberFormat('vi-VN').format(member.hour_rate || 0)} VNĐ/giờ
-                          </p>
+                          <button
+                            onClick={() => deleteStaff(member.id)}
+                            className="text-red-600 hover:text-red-800 font-semibold px-4 py-2 rounded-lg hover:bg-red-50 transition-all"
+                          >
+                            Xóa
+                          </button>
                         </div>
                       </div>
-                      <button
-                        onClick={() => deleteStaff(member.id)}
-                        className="text-red-600 hover:text-red-800 font-semibold px-4 py-2 rounded-lg hover:bg-red-50 transition-all"
-                      >
-                        Xóa
-                      </button>
                     </div>
                   ))}
                 </div>
