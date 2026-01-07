@@ -30,7 +30,6 @@ export default function Home() {
   const [initialLoading, setInitialLoading] = useState(true); // Only for first load
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [gpsLoading, setGpsLoading] = useState(false);
-  const [submitting, setSubmitting] = useState<string | null>(null); // store ID being submitted
   const [showActionDialog, setShowActionDialog] = useState(false);
   const [selectedStore, setSelectedStore] = useState<StoreWithDistance | null>(null);
 
@@ -291,133 +290,24 @@ export default function Home() {
     }
 
     // First click (no check-in) or Second click (active check-in)
-    // Both go through selfie page if required
-    if (store.selfie_required) {
-      // Pass GPS coordinates if we have them (saves re-fetching GPS)
-      if (store.gps_required && store.distance !== undefined) {
-        // We have GPS data - pass it along
-        getCurrentPosition().then(position => {
-          const params = new URLSearchParams({
-            store: store.id,
-            lat: String(position.coords.latitude),
-            lon: String(position.coords.longitude),
-          });
-          router.push(`/checkin/submit?${params.toString()}`);
-        }).catch(() => {
-          // GPS failed, go without coordinates (will fetch again)
-          router.push(`/checkin/submit?store=${store.id}`);
+    // Navigate to confirmation page regardless of selfie requirement
+    // Pass GPS coordinates if we have them (saves re-fetching GPS)
+    if (store.gps_required && store.distance !== undefined) {
+      // We have GPS data - pass it along
+      getCurrentPosition().then(position => {
+        const params = new URLSearchParams({
+          store: store.id,
+          lat: String(position.coords.latitude),
+          lon: String(position.coords.longitude),
         });
-      } else {
-        // No GPS required or GPS not available - go directly
+        router.push(`/checkin/submit?${params.toString()}`);
+      }).catch(() => {
+        // GPS failed, go without coordinates (will fetch again)
         router.push(`/checkin/submit?store=${store.id}`);
-      }
-      return;
-    }
-
-    // Instant check-in or check-out (no selfie required)
-    await handleInstantAction(store, checkInStatus);
-  }
-
-  async function handleInstantAction(store: StoreWithDistance, checkInStatus: CheckInStatus, actionType?: 'check-in' | 'check-out' | 're-checkout') {
-    setSubmitting(store.id);
-
-    try {
-      const staffId = store.staffId;
-      if (!staffId) {
-        throw new Error('Không tìm thấy thông tin nhân viên');
-      }
-
-      const currentTime = new Date();
-
-      // Determine action
-      let action = actionType;
-      if (!action) {
-        if (checkInStatus.type === 'none') {
-          action = 'check-in';
-        } else if (checkInStatus.type === 'active') {
-          action = 'check-out';
-        }
-      }
-
-      // Get location based on GPS requirement
-      let latitude: number;
-      let longitude: number;
-      let distance = 0;
-
-      if (store.gps_required) {
-        const position = await getCurrentPosition();
-        latitude = position.coords.latitude;
-        longitude = position.coords.longitude;
-        distance = calculateDistance(latitude, longitude, store.latitude, store.longitude);
-      } else {
-        latitude = store.latitude || 0;
-        longitude = store.longitude || 0;
-        distance = 0;
-      }
-
-      // Perform action
-      if (action === 'check-in') {
-        // Instant check-in
-        const { error } = await supabase.from('check_ins').insert({
-          staff_id: staffId,
-          store_id: store.id,
-          check_in_time: currentTime.toISOString(),
-          latitude,
-          longitude,
-          distance_meters: distance,
-          status: 'success',
-        });
-
-        if (error) throw error;
-        alert('✅ Check-in thành công!');
-
-      } else if (action === 'check-out' && checkInStatus.activeCheckIn) {
-        // Instant check-out
-        const { error } = await supabase
-          .from('check_ins')
-          .update({
-            check_out_time: currentTime.toISOString(),
-            check_out_latitude: latitude,
-            check_out_longitude: longitude,
-            check_out_distance_meters: distance,
-          })
-          .eq('id', checkInStatus.activeCheckIn.id);
-
-        if (error) throw error;
-
-        // Calculate duration
-        const checkInTime = new Date(checkInStatus.activeCheckIn.check_in_time);
-        const durationMin = Math.floor((currentTime.getTime() - checkInTime.getTime()) / 1000 / 60);
-        const hours = Math.floor(durationMin / 60);
-        const minutes = durationMin % 60;
-
-        alert(`✅ Check-out thành công!\nThời gian làm việc: ${hours} giờ ${minutes} phút`);
-
-      } else if (action === 're-checkout' && checkInStatus.lastCompletedCheckIn) {
-        // Re-checkout: Update the check-out time
-        const { error } = await supabase
-          .from('check_ins')
-          .update({
-            check_out_time: currentTime.toISOString(),
-            check_out_latitude: latitude,
-            check_out_longitude: longitude,
-            check_out_distance_meters: distance,
-          })
-          .eq('id', checkInStatus.lastCompletedCheckIn.id);
-
-        if (error) throw error;
-        alert('✅ Đã cập nhật giờ ra!');
-      }
-
-      // Reload stores to refresh status
-      await loadStoresWithGPS(false);
-      setSubmitting(null);
-      setShowActionDialog(false);
-
-    } catch (error: any) {
-      console.error('Action error:', error);
-      alert('Lỗi khi thực hiện. Vui lòng thử lại.');
-      setSubmitting(null);
+      });
+    } else {
+      // No GPS required or GPS not available - go directly
+      router.push(`/checkin/submit?store=${store.id}`);
     }
   }
 
@@ -465,7 +355,6 @@ export default function Home() {
                 {stores.map((store) => {
                   const isFar = store.status === 'far';
                   const noGps = store.status === 'no-gps';
-                  const isSubmitting = submitting === store.id;
                   const checkInStatus = store.checkInStatus || { type: 'none' };
 
                   // Determine action text and distance display
@@ -496,8 +385,8 @@ export default function Home() {
                       actionText = 'Vui lòng bật GPS trong cài đặt thiết bị';
                     }
                   } else if (checkInStatus.type === 'none') {
-                    // First click → Check-in (no time yet)
-                    actionText = store.selfie_required ? 'Check-in (có ảnh)' : 'Check-in';
+                    // First click → Check-in
+                    actionText = 'Check-in';
                   } else if (checkInStatus.type === 'active') {
                     // Currently checked in - show status clearly
                     const checkInTime = new Date(checkInStatus.activeCheckIn.check_in_time);
@@ -516,7 +405,7 @@ export default function Home() {
                     <button
                       key={store.id}
                       onClick={() => handleStoreClick(store)}
-                      disabled={isFar || noGps || isSubmitting}
+                      disabled={isFar || noGps}
                       className={`w-full text-left p-4 rounded-xl border-2 transition-all ${
                         isFar || noGps
                           ? 'bg-gray-100 border-gray-300 cursor-not-allowed opacity-60'
@@ -548,13 +437,6 @@ export default function Home() {
                           <p className={`text-sm font-medium ${isFar || noGps ? 'text-gray-500' : 'text-gray-800'}`}>
                             {actionText}
                           </p>
-
-                          {/* Loading */}
-                          {isSubmitting && (
-                            <p className="text-xs text-blue-600 mt-1">
-                              ⏳ Đang xử lý...
-                            </p>
-                          )}
                         </div>
                       </div>
                     </button>
@@ -710,33 +592,26 @@ export default function Home() {
 
             <div className="grid grid-cols-2 gap-3 mb-4">
               <button
-                onClick={async () => {
-                  // If selfie required, navigate to selfie page
-                  if (selectedStore.selfie_required) {
-                    setShowActionDialog(false);
-                    // Pass GPS if required
-                    if (selectedStore.gps_required && selectedStore.distance !== undefined) {
-                      getCurrentPosition().then(position => {
-                        const params = new URLSearchParams({
-                          store: selectedStore.id,
-                          lat: String(position.coords.latitude),
-                          lon: String(position.coords.longitude),
-                          action: 're-checkout',
-                        });
-                        router.push(`/checkin/submit?${params.toString()}`);
-                      }).catch(() => {
-                        router.push(`/checkin/submit?store=${selectedStore.id}&action=re-checkout`);
+                onClick={() => {
+                  setShowActionDialog(false);
+                  // Navigate to confirmation page
+                  if (selectedStore.gps_required && selectedStore.distance !== undefined) {
+                    getCurrentPosition().then(position => {
+                      const params = new URLSearchParams({
+                        store: selectedStore.id,
+                        lat: String(position.coords.latitude),
+                        lon: String(position.coords.longitude),
+                        action: 're-checkout',
                       });
-                    } else {
+                      router.push(`/checkin/submit?${params.toString()}`);
+                    }).catch(() => {
                       router.push(`/checkin/submit?store=${selectedStore.id}&action=re-checkout`);
-                    }
+                    });
                   } else {
-                    // No selfie required - instant action
-                    await handleInstantAction(selectedStore, selectedStore.checkInStatus!, 're-checkout');
+                    router.push(`/checkin/submit?store=${selectedStore.id}&action=re-checkout`);
                   }
                 }}
-                disabled={submitting !== null}
-                className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-3 rounded-lg font-semibold transition-all flex flex-col items-center justify-center gap-2 disabled:opacity-50"
+                className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-3 rounded-lg font-semibold transition-all flex flex-col items-center justify-center gap-2"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -745,33 +620,26 @@ export default function Home() {
               </button>
 
               <button
-                onClick={async () => {
+                onClick={() => {
                   setShowActionDialog(false);
-                  // If selfie required, navigate to selfie page
-                  if (selectedStore.selfie_required) {
-                    // Pass GPS if required
-                    if (selectedStore.gps_required && selectedStore.distance !== undefined) {
-                      getCurrentPosition().then(position => {
-                        const params = new URLSearchParams({
-                          store: selectedStore.id,
-                          lat: String(position.coords.latitude),
-                          lon: String(position.coords.longitude),
-                          action: 'check-in',
-                        });
-                        router.push(`/checkin/submit?${params.toString()}`);
-                      }).catch(() => {
-                        router.push(`/checkin/submit?store=${selectedStore.id}&action=check-in`);
+                  // Navigate to confirmation page
+                  if (selectedStore.gps_required && selectedStore.distance !== undefined) {
+                    getCurrentPosition().then(position => {
+                      const params = new URLSearchParams({
+                        store: selectedStore.id,
+                        lat: String(position.coords.latitude),
+                        lon: String(position.coords.longitude),
+                        action: 'check-in',
                       });
-                    } else {
+                      router.push(`/checkin/submit?${params.toString()}`);
+                    }).catch(() => {
                       router.push(`/checkin/submit?store=${selectedStore.id}&action=check-in`);
-                    }
+                    });
                   } else {
-                    // No selfie required - instant action
-                    await handleInstantAction(selectedStore, { type: 'none' }, 'check-in');
+                    router.push(`/checkin/submit?store=${selectedStore.id}&action=check-in`);
                   }
                 }}
-                disabled={submitting !== null}
-                className="bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-lg font-semibold transition-all flex flex-col items-center justify-center gap-2 disabled:opacity-50"
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-lg font-semibold transition-all flex flex-col items-center justify-center gap-2"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />

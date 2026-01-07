@@ -98,9 +98,9 @@ export default function CreateStore() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <Header />
 
-      <main className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-white rounded-lg shadow-lg p-8">
-          <form onSubmit={handleSubmit} className="space-y-6">
+      <main className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+        <div className="bg-white rounded-lg shadow-lg p-4 sm:p-8">
+          <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Tên Cửa Hàng *
@@ -110,7 +110,7 @@ export default function CreateStore() {
                 required
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900 placeholder-gray-400"
                 placeholder="VD: Cửa hàng Nguyễn Văn A"
               />
             </div>
@@ -123,7 +123,7 @@ export default function CreateStore() {
                 required
                 value={formData.address}
                 onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900 placeholder-gray-400"
                 placeholder="VD: 123 Nguyễn Huệ, Quận 1, TP.HCM"
                 rows={3}
               />
@@ -133,14 +133,14 @@ export default function CreateStore() {
               <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Vị Trí GPS *
               </label>
-              <div className="flex gap-4 mb-4">
+              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-4">
                 <input
                   type="number"
                   step="any"
                   required
                   value={formData.latitude || ''}
                   onChange={(e) => setFormData({ ...formData, latitude: parseFloat(e.target.value) })}
-                  className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900 placeholder-gray-400"
                   placeholder="Vĩ độ"
                 />
                 <input
@@ -149,7 +149,7 @@ export default function CreateStore() {
                   required
                   value={formData.longitude || ''}
                   onChange={(e) => setFormData({ ...formData, longitude: parseFloat(e.target.value) })}
-                  className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900 placeholder-gray-400"
                   placeholder="Kinh độ"
                 />
               </div>
@@ -187,14 +187,14 @@ export default function CreateStore() {
                 max="500"
                 value={formData.radius_meters}
                 onChange={(e) => setFormData({ ...formData, radius_meters: parseInt(e.target.value) })}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900 placeholder-gray-400"
               />
               <p className="text-sm text-gray-500 mt-2">
                 Nhân viên chỉ có thể điểm danh trong bán kính này (10-500m)
               </p>
             </div>
 
-            <div className="flex gap-4">
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 pt-2">
               <Link href="/owner" className="flex-1">
                 <button
                   type="button"

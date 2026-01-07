@@ -148,18 +148,11 @@ export default function Header() {
                     )}
                   </div>
                 ) : (
-                  <>
-                    <Link href="/auth/login">
-                      <button className="text-gray-700 hover:text-blue-600 font-semibold text-sm sm:text-base">
-                        Đăng Nhập
-                      </button>
-                    </Link>
-                    <Link href="/auth/signup">
-                      <button className="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-4 sm:px-6 py-2 rounded-lg font-semibold text-sm sm:text-base transition-all">
-                        Đăng Ký
-                      </button>
-                    </Link>
-                  </>
+                  <Link href="/auth/login">
+                    <button className="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-4 sm:px-6 py-2 rounded-lg font-semibold text-sm sm:text-base transition-all">
+                      Đăng Nhập
+                    </button>
+                  </Link>
                 )}
           </div>
         </div>
