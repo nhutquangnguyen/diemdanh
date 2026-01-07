@@ -85,18 +85,14 @@ export default function Home() {
     return () => clearInterval(timer);
   }, []);
 
-  // Load stores with GPS when user is logged in
+  // Load stores when user is logged in (WITHOUT auto-requesting GPS)
   useEffect(() => {
     if (user) {
-      loadStoresWithGPS(true); // Initial load with spinner
-
-      // Refresh GPS every 30 seconds (background update, no spinner)
-      const interval = setInterval(() => loadStoresWithGPS(false), 30000);
-      return () => clearInterval(interval);
+      loadStores(true); // Initial load with spinner
     }
   }, [user]);
 
-  async function loadStoresWithGPS(isInitialLoad = false) {
+  async function loadStores(isInitialLoad = false) {
     if (!user) return;
 
     // Only show loading spinner on initial load
@@ -104,14 +100,8 @@ export default function Home() {
       setInitialLoading(true);
     }
     setGpsError(null);
-    setGpsLoading(true);
 
     try {
-      // Start GPS fetch early (runs in parallel with DB queries)
-      const gpsPromise = getCurrentPosition().catch(err => {
-        console.warn('GPS fetch failed:', err);
-        return null;
-      });
 
       // Fetch user's stores with staff IDs
       const { data: staffRecords, error } = await supabase
@@ -180,84 +170,32 @@ export default function Home() {
         }
       });
 
-      // Wait for GPS position (started earlier in parallel)
-      const position = await gpsPromise;
+      // Load stores WITHOUT requesting GPS initially
+      // GPS permission will be requested only when user clicks a GPS-required store
+      const storesWithoutGPS: StoreWithDistance[] = (fetchedStores || []).map(store => {
+        const checkInStatus = checkInMap.get(store.id) || { type: 'none' };
+        const staffId = staffMap.get(store.id);
 
-      if (position) {
-        const userLat = position.coords.latitude;
-        const userLon = position.coords.longitude;
-
-        // Calculate distances
-        const storesWithDistance: StoreWithDistance[] = (fetchedStores || []).map(store => {
-          const checkInStatus = checkInMap.get(store.id) || { type: 'none' };
-          const staffId = staffMap.get(store.id);
-
-          // If store doesn't require GPS, skip distance calculation
-          if (!store.gps_required) {
-            return {
-              ...store,
-              status: 'no-gps-required' as const,
-              checkInStatus,
-              staffId,
-            };
-          }
-
-          const distance = calculateDistance(userLat, userLon, store.latitude, store.longitude);
-          const status = getStoreStatus(distance, store.radius_meters);
-
+        // If store doesn't require GPS, mark as ready
+        if (!store.gps_required) {
           return {
             ...store,
-            distance,
-            status,
+            status: 'no-gps-required' as const,
             checkInStatus,
             staffId,
           };
-        });
+        }
 
-        // Sort: no-gps-required first, then in-range, then by distance
-        storesWithDistance.sort((a, b) => {
-          // No GPS required stores first
-          if (a.status === 'no-gps-required' && b.status !== 'no-gps-required') return -1;
-          if (a.status !== 'no-gps-required' && b.status === 'no-gps-required') return 1;
+        // For GPS-required stores, mark as "no-gps" (will request permission when clicked)
+        return {
+          ...store,
+          status: 'no-gps' as const,
+          checkInStatus,
+          staffId,
+        };
+      });
 
-          // Then in-range stores
-          if (a.status === 'in-range' && b.status !== 'in-range') return -1;
-          if (a.status !== 'in-range' && b.status === 'in-range') return 1;
-
-          // Then sort by distance
-          return (a.distance || 0) - (b.distance || 0);
-        });
-
-        setStores(storesWithDistance);
-      } else {
-        // GPS failed - show stores without GPS info
-        console.warn('GPS not available');
-        setGpsError('Không thể lấy vị trí GPS. Vui lòng bật GPS và cấp quyền.');
-
-        // Show stores without GPS info
-        setStores((fetchedStores || []).map(store => {
-          const checkInStatus = checkInMap.get(store.id) || { type: 'none' };
-          const staffId = staffMap.get(store.id);
-
-          // If store doesn't require GPS, still allow check-in
-          if (!store.gps_required) {
-            return {
-              ...store,
-              status: 'no-gps-required' as const,
-              checkInStatus,
-              staffId,
-            };
-          }
-
-          // For stores that need GPS, mark as no-gps
-          return {
-            ...store,
-            status: 'no-gps' as const,
-            checkInStatus,
-            staffId,
-          };
-        }));
-      }
+      setStores(storesWithoutGPS);
     } catch (error) {
       console.error('Error loading stores:', error);
     } finally {
@@ -269,18 +207,6 @@ export default function Home() {
   }
 
   async function handleStoreClick(store: StoreWithDistance) {
-    // Check if too far
-    if (store.status === 'far') {
-      alert(`Bạn quá xa cửa hàng (${formatDistance(store.distance || 0)}). Vui lòng đến gần hơn để điểm danh.`);
-      return;
-    }
-
-    // Check if GPS needed but not available
-    if (store.status === 'no-gps') {
-      alert('Vui lòng bật GPS để điểm danh');
-      return;
-    }
-
     const checkInStatus = store.checkInStatus || { type: 'none' };
 
     // Third+ click: Show dialog to choose action
@@ -290,24 +216,61 @@ export default function Home() {
       return;
     }
 
-    // First click (no check-in) or Second click (active check-in)
-    // Navigate to confirmation page regardless of selfie requirement
-    // Pass GPS coordinates if we have them (saves re-fetching GPS)
-    if (store.gps_required && store.distance !== undefined) {
-      // We have GPS data - pass it along
-      getCurrentPosition().then(position => {
+    // If store requires GPS, request permission NOW (when user clicks)
+    if (store.gps_required) {
+      try {
+        setGpsLoading(true);
+        setGpsError(null);
+
+        const position = await getCurrentPosition();
+
+        // Calculate distance to verify user is in range
+        const distance = calculateDistance(
+          position.coords.latitude,
+          position.coords.longitude,
+          store.latitude,
+          store.longitude
+        );
+
+        const status = getStoreStatus(distance, store.radius_meters);
+
+        if (status === 'far') {
+          alert(`Bạn đang ở xa cửa hàng ${formatDistance(distance)}. Vui lòng đến gần hơn (trong phạm vi ${formatDistance(store.radius_meters || 100)}) để điểm danh.`);
+          setGpsLoading(false);
+          return;
+        }
+
+        // GPS verified - proceed to check-in with coordinates
         const params = new URLSearchParams({
           store: store.id,
           lat: String(position.coords.latitude),
           lon: String(position.coords.longitude),
         });
         router.push(`/checkin/submit?${params.toString()}`);
-      }).catch(() => {
-        // GPS failed, go without coordinates (will fetch again)
-        router.push(`/checkin/submit?store=${store.id}`);
-      });
+        setGpsLoading(false);
+
+      } catch (error: any) {
+        setGpsLoading(false);
+
+        // Handle GPS errors gracefully
+        let errorMessage = 'Không thể lấy vị trí GPS. ';
+
+        if (error.code === 1) { // PERMISSION_DENIED
+          errorMessage += 'Vui lòng cấp quyền truy cập vị trí cho trình duyệt trong cài đặt.';
+        } else if (error.code === 2) { // POSITION_UNAVAILABLE
+          errorMessage += 'Vị trí không khả dụng. Vui lòng bật GPS trên thiết bị.';
+        } else if (error.code === 3) { // TIMEOUT
+          errorMessage += 'Hết thời gian chờ. Vui lòng thử lại.';
+        } else {
+          errorMessage += 'Vui lòng bật GPS và cấp quyền truy cập vị trí.';
+        }
+
+        setGpsError(errorMessage);
+        console.error('GPS error:', error);
+        return;
+      }
     } else {
-      // No GPS required or GPS not available - go directly
+      // No GPS required - proceed directly
       router.push(`/checkin/submit?store=${store.id}`);
     }
   }
@@ -379,15 +342,11 @@ export default function Home() {
                     }
                   }
 
-                  if (isFar || noGps) {
-                    if (isFar) {
-                      actionText = 'Ngoài phạm vi';
-                    } else {
-                      actionText = 'Vui lòng bật GPS trong cài đặt thiết bị';
-                    }
+                  if (isFar) {
+                    actionText = 'Ngoài phạm vi';
                   } else if (checkInStatus.type === 'none') {
                     // First click → Check-in
-                    actionText = 'Check-in';
+                    actionText = 'Nhấn để check-in';
                   } else if (checkInStatus.type === 'active') {
                     // Currently checked in - show status clearly
                     const checkInTime = new Date(checkInStatus.activeCheckIn.check_in_time);
@@ -406,9 +365,9 @@ export default function Home() {
                     <button
                       key={store.id}
                       onClick={() => handleStoreClick(store)}
-                      disabled={isFar || noGps}
+                      disabled={isFar || gpsLoading}
                       className={`w-full text-left p-4 rounded-xl border-2 transition-all ${
-                        isFar || noGps
+                        isFar
                           ? 'bg-gray-100 border-gray-300 cursor-not-allowed opacity-60'
                           : 'bg-white border-blue-500 hover:shadow-lg active:scale-[0.98]'
                       }`}
@@ -435,7 +394,7 @@ export default function Home() {
                           )}
 
                           {/* Action Text - Black (or gray if disabled) */}
-                          <p className={`text-sm font-medium ${isFar || noGps ? 'text-gray-500' : 'text-gray-800'}`}>
+                          <p className={`text-sm font-medium ${isFar ? 'text-gray-500' : 'text-gray-800'}`}>
                             {actionText}
                           </p>
                         </div>

@@ -16,6 +16,7 @@ export default function AddStaff() {
   const [store, setStore] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
+  const [hourRate, setHourRate] = useState('25000'); // Default hourly rate
 
   useEffect(() => {
     checkAuth();
@@ -100,6 +101,7 @@ export default function AddStaff() {
             email: trimmedEmail,
             full_name: registeredUser.full_name || trimmedEmail.split('@')[0],
             phone: registeredUser.phone || null,
+            hour_rate: parseFloat(hourRate) || 0,
           },
         ]);
 
@@ -145,6 +147,25 @@ export default function AddStaff() {
               />
               <p className="text-sm text-gray-500 mt-1">
                 Email phải đã đăng ký tài khoản trên diemdanh.net
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Lương Theo Giờ (VNĐ) *
+              </label>
+              <input
+                type="number"
+                required
+                min="0"
+                step="1000"
+                value={hourRate}
+                onChange={(e) => setHourRate(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="25000"
+              />
+              <p className="text-sm text-gray-500 mt-1">
+                Mức lương theo giờ để tính tổng lương (VD: 25,000 VNĐ/giờ)
               </p>
             </div>
 

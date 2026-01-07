@@ -637,6 +637,9 @@ export default function StoreDetail() {
                           {member.phone && (
                             <p className="text-sm text-gray-500">{member.phone}</p>
                           )}
+                          <p className="text-sm font-medium text-green-600">
+                            {new Intl.NumberFormat('vi-VN').format(member.hour_rate || 0)} VNĐ/giờ
+                          </p>
                         </div>
                       </div>
                       <button

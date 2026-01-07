@@ -15,6 +15,7 @@ interface StaffReport {
   lateDays: number; // Days checked in late
   lateMinutes: number; // Total minutes late
   totalHours: number; // Total hours worked
+  totalSalary: number; // Total salary (hours * hourly rate)
   attendanceRate: number; // Percentage
   onTimeDays: number; // Days checked in on time
   avgCheckInTime: string; // Average check-in time
@@ -172,6 +173,9 @@ export default function StoreReport() {
           avgCheckInTime = `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
         }
 
+        // Calculate total salary based on hours worked and hourly rate
+        const totalSalary = totalHours * (staff.hour_rate || 0);
+
         return {
           staff,
           totalDays,
@@ -180,6 +184,7 @@ export default function StoreReport() {
           lateDays,
           lateMinutes,
           totalHours,
+          totalSalary,
           attendanceRate,
           onTimeDays,
           avgCheckInTime,
@@ -250,6 +255,8 @@ export default function StoreReport() {
       'Tổng phút trễ',
       'Số ngày đúng giờ',
       'Tổng giờ làm',
+      'Lương giờ (VNĐ)',
+      'Tổng lương (VNĐ)',
       'Giờ vào TB',
       'Tỷ lệ chuyên cần (%)',
     ];
@@ -263,6 +270,8 @@ export default function StoreReport() {
       r.lateMinutes,
       r.onTimeDays,
       `${r.totalHours}h`,
+      new Intl.NumberFormat('vi-VN').format(r.staff.hour_rate || 0),
+      new Intl.NumberFormat('vi-VN').format(r.totalSalary),
       r.avgCheckInTime,
       r.attendanceRate.toFixed(1),
     ]);
@@ -601,6 +610,22 @@ export default function StoreReport() {
                     </div>
                   </th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    Lương/giờ
+                  </th>
+                  <th
+                    onClick={() => handleSort('totalSalary')}
+                    className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+                  >
+                    <div className="flex items-center justify-center gap-2">
+                      Tổng lương
+                      {sortColumn === 'totalSalary' && (
+                        <svg className={`w-4 h-4 ${sortDirection === 'asc' ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      )}
+                    </div>
+                  </th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
                     Giờ vào TB
                   </th>
                   <th
@@ -621,7 +646,7 @@ export default function StoreReport() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredAndSortedData.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={11} className="px-4 py-8 text-center text-gray-500">
                       {searchTerm ? 'Không tìm thấy kết quả phù hợp' : 'Không có dữ liệu trong kỳ báo cáo này'}
                     </td>
                   </tr>
@@ -669,6 +694,12 @@ export default function StoreReport() {
                         </td>
                         <td className="px-4 py-3 text-center text-sm font-semibold text-gray-700">
                           {report.totalHours}h
+                        </td>
+                        <td className="px-4 py-3 text-center text-sm text-green-600">
+                          {new Intl.NumberFormat('vi-VN').format(report.staff.hour_rate || 0)}
+                        </td>
+                        <td className="px-4 py-3 text-center text-sm font-bold text-green-600">
+                          {new Intl.NumberFormat('vi-VN').format(report.totalSalary)}
                         </td>
                         <td className="px-4 py-3 text-center text-sm text-gray-700">
                           {report.avgCheckInTime}

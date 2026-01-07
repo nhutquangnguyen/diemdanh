@@ -21,6 +21,7 @@ export interface Staff {
   full_name: string;
   phone: string;
   store_id: string;
+  hour_rate: number; // Hourly rate in VND
   created_at: string;
 }
 
