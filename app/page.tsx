@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Header from '@/components/Header';
+import FeatureContent from '@/components/FeatureContent';
 import { supabase } from '@/lib/supabase';
 import { getCurrentUserSync } from '@/lib/auth';
 import { calculateDistance, formatDistance, getCurrentPosition, getStoreStatus } from '@/lib/geo';
@@ -478,83 +479,8 @@ export default function Home() {
           </div>
         </main>
       ) : (
-        // NOT LOGGED-IN VIEW
-        <main className="flex-1 flex flex-col">
-          <section className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 text-center flex-1 flex flex-col justify-center">
-            <div className="mb-8">
-              <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-800 mb-4 leading-tight">
-                Quên máy chấm công.<br />
-                Chỉ cần 1 link.
-              </h1>
-              <p className="text-lg sm:text-xl text-gray-600 max-w-2xl mx-auto mb-6">
-                Nhân viên điểm danh trong <span className="text-blue-600 font-semibold">5 giây</span> bằng điện thoại.<br />
-                Không cần cài app. Không cần máy chấm công đắt tiền.
-              </p>
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-4">
-              <Link href="/auth/signup">
-                <button className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-10 py-4 rounded-lg font-bold text-lg transition-all shadow-lg hover:shadow-xl">
-                  Dùng Thử Miễn Phí 7 Ngày
-                </button>
-              </Link>
-            </div>
-
-            <p className="text-sm text-gray-600 mb-12">
-              Đã có tài khoản?{' '}
-              <Link href="/auth/login" className="text-blue-600 hover:underline font-semibold">
-                Đăng nhập ngay
-              </Link>
-            </p>
-
-            <div className="grid sm:grid-cols-3 gap-6 max-w-3xl mx-auto mb-12">
-              <div className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-all">
-                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                </div>
-                <h3 className="font-bold text-gray-800 mb-2">Nhanh chóng</h3>
-                <p className="text-sm text-gray-600">Quét QR, chụp ảnh, xong. Chỉ 5 giây mỗi lần điểm danh.</p>
-              </div>
-
-              <div className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-all">
-                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                </div>
-                <h3 className="font-bold text-gray-800 mb-2">Chính xác GPS</h3>
-                <p className="text-sm text-gray-600">Xác thực vị trí thực tế. Chống gian lận điểm danh.</p>
-              </div>
-
-              <div className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-all">
-                <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                </div>
-                <h3 className="font-bold text-gray-800 mb-2">Selfie xác thực</h3>
-                <p className="text-sm text-gray-600">Chụp ảnh khuôn mặt mỗi lần. Đảm bảo đúng người.</p>
-              </div>
-            </div>
-
-            <div className="bg-blue-50 rounded-xl p-6 max-w-2xl mx-auto mb-8">
-              <p className="text-sm text-gray-600 mb-2">
-                <span className="font-semibold text-blue-600">Miễn phí 100%</span> trong giai đoạn Beta
-              </p>
-              <p className="text-xs text-gray-500">
-                Không cần thẻ tín dụng • Không cam kết dài hạn • Hủy bất cứ lúc nào
-              </p>
-            </div>
-
-            <Link href="/about" className="text-blue-600 hover:text-blue-700 font-semibold text-sm hover:underline">
-              Xem chi tiết tính năng và bảng giá →
-            </Link>
-          </section>
-        </main>
+        // NOT LOGGED-IN VIEW - Show Feature Page Content
+        <FeatureContent />
       )}
 
       {/* Action Dialog */}
@@ -665,11 +591,8 @@ export default function Home() {
       <footer className="bg-white mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
           <div className="flex flex-col items-center gap-4">
-            <Link href="/about" className="text-blue-600 hover:text-blue-700 font-semibold text-sm sm:text-base">
-              Giới thiệu về Diemdanh.net
-            </Link>
             <p className="text-xs sm:text-sm text-gray-600">
-              © 2026 Diemdanh.net - Giải pháp chấm công thông minh
+              © 2026 diemdanh.net - Giải pháp chấm công thông minh
             </p>
           </div>
         </div>
