@@ -6,11 +6,13 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { getCurrentUser } from '@/lib/auth';
 import Header from '@/components/Header';
+import { useToast } from '@/components/Toast';
 
 export default function AddStaff() {
   const params = useParams();
   const router = useRouter();
   const storeId = params.id as string;
+  const toast = useToast();
 
   const [user, setUser] = useState<any>(null);
   const [store, setStore] = useState<any>(null);
@@ -44,7 +46,7 @@ export default function AddStaff() {
       setStore(data);
     } catch (error) {
       console.error('Error loading store:', error);
-      alert('Không tìm thấy cửa hàng');
+      toast.error('Không tìm thấy cửa hàng');
       router.push('/owner');
     }
   }
@@ -64,13 +66,13 @@ export default function AddStaff() {
       if (userCheckError) {
         // If the RPC doesn't exist, fall back to checking auth metadata
         console.error('RPC error:', userCheckError);
-        alert('Email này chưa đăng ký tài khoản trên hệ thống. Vui lòng yêu cầu người này đăng ký tài khoản trước.');
+        toast.warning('Email này chưa đăng ký tài khoản trên hệ thống. Vui lòng yêu cầu người này đăng ký tài khoản trước.');
         setLoading(false);
         return;
       }
 
       if (!existingUsers || existingUsers.length === 0) {
-        alert('Email này chưa đăng ký tài khoản trên hệ thống. Vui lòng yêu cầu người này đăng ký tài khoản trước.');
+        toast.warning('Email này chưa đăng ký tài khoản trên hệ thống. Vui lòng yêu cầu người này đăng ký tài khoản trước.');
         setLoading(false);
         return;
       }
@@ -86,7 +88,7 @@ export default function AddStaff() {
         .single();
 
       if (existingStaff) {
-        alert('Email này đã được thêm vào danh sách nhân viên');
+        toast.warning('Email này đã được thêm vào danh sách nhân viên');
         setLoading(false);
         return;
       }
@@ -107,11 +109,11 @@ export default function AddStaff() {
 
       if (error) throw error;
 
-      alert('Thêm email thành công!');
+      toast.success('Thêm email thành công!');
       router.push(`/owner/stores/${storeId}`);
     } catch (error: any) {
       console.error('Error adding staff:', error);
-      alert('Lỗi: ' + error.message);
+      toast.error('Lỗi: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -189,6 +191,9 @@ export default function AddStaff() {
           </form>
         </div>
       </main>
+
+      {/* Toast Container */}
+      <toast.ToastContainer />
     </div>
   );
 }

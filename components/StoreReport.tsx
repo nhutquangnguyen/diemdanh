@@ -1,29 +1,34 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
-import { Store, CheckIn, Staff } from '@/types';
-import Header from '@/components/Header';
+import { Store, CheckIn, Staff, StaffSchedule, ShiftTemplate } from '@/types';
 
-interface StaffReport {
+export interface StaffReport {
   staff: Staff;
-  totalDays: number; // Total working days in period
-  presentDays: number; // Days checked in
-  absentDays: number; // Days scheduled but didn't show up
-  lateDays: number; // Days checked in late
-  lateMinutes: number; // Total minutes late
-  totalHours: number; // Total hours worked
-  totalSalary: number; // Total salary (hours * hourly rate)
-  attendanceRate: number; // Percentage
-  onTimeDays: number; // Days checked in on time
-  avgCheckInTime: string; // Average check-in time
+  totalDays: number;
+  presentDays: number;
+  absentDays: number;
+  lateDays: number;
+  lateMinutes: number;
+  totalHours: number;
+  totalSalary: number;
+  attendanceRate: number;
+  onTimeDays: number;
+  avgCheckInTime: string;
+  scheduledShifts: number;
+  shiftsAttended: number;
+  shiftsMissed: number;
+  shiftsLate: number;
+  shiftsOnTime: number;
 }
 
-export default function StoreReport() {
-  const params = useParams();
-  const storeId = params.id as string;
+interface StoreReportProps {
+  storeId: string;
+}
+
+export default function StoreReport({ storeId }: StoreReportProps) {
 
   const [store, setStore] = useState<Store | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,6 +50,8 @@ export default function StoreReport() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [checkInsData, setCheckInsData] = useState<CheckIn[]>([]);
   const [staffData, setStaffData] = useState<Staff[]>([]);
+  const [schedulesData, setSchedulesData] = useState<StaffSchedule[]>([]);
+  const [shiftsData, setShiftsData] = useState<ShiftTemplate[]>([]);
 
   // Calculate date range based on period type
   function getDateRange(): { start: Date; end: Date } {
@@ -116,49 +123,119 @@ export default function StoreReport() {
       if (checkInsError) throw checkInsError;
       setCheckInsData(checkInsDataResult || []);
 
+      // Load schedules for the period
+      const { data: schedulesDataResult, error: schedulesError } = await supabase
+        .from('staff_schedules')
+        .select('*')
+        .eq('store_id', storeId)
+        .gte('scheduled_date', start.toISOString().split('T')[0])
+        .lte('scheduled_date', end.toISOString().split('T')[0]);
+
+      if (schedulesError) throw schedulesError;
+      setSchedulesData(schedulesDataResult || []);
+
+      // Load shift templates
+      const { data: shiftsDataResult, error: shiftsError } = await supabase
+        .from('shift_templates')
+        .select('*')
+        .eq('store_id', storeId);
+
+      if (shiftsError) throw shiftsError;
+      setShiftsData(shiftsDataResult || []);
+
       // Calculate report for each staff
       const reports: StaffReport[] = (staffDataResult || []).map((staff) => {
         const staffCheckIns = (checkInsDataResult || []).filter(c => c.staff_id === staff.id);
+        const staffSchedules = (schedulesDataResult || []).filter(s => s.staff_id === staff.id);
 
-        // Count unique days (in case of multiple check-ins per day)
-        const uniqueDays = new Set(
-          staffCheckIns.map(c => new Date(c.check_in_time).toDateString())
-        );
-        const presentDays = uniqueDays.size;
-
-        // Calculate total days in period (for now, simplified to days between dates)
-        const totalDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-
-        // Count late check-ins (status === 'late')
-        const lateCheckIns = staffCheckIns.filter(c => c.status === 'late');
-        const lateDays = new Set(
-          lateCheckIns.map(c => new Date(c.check_in_time).toDateString())
-        ).size;
-
-        // Calculate total late minutes (mock for now - would need shift start times)
-        const lateMinutes = lateDays * 15; // Assume 15 min average late
-
-        // Calculate total hours worked based on check-in and check-out times
+        // Shift-based metrics
+        const scheduledShifts = staffSchedules.length;
+        let shiftsAttended = 0;
+        let shiftsLate = 0;
+        let shiftsOnTime = 0;
+        let totalLateMinutes = 0;
         let totalHours = 0;
+
+        // Map to track check-ins by date
+        const checkInsByDate = new Map<string, CheckIn[]>();
         staffCheckIns.forEach(checkIn => {
-          if (checkIn.check_out_time) {
-            // Calculate actual work duration
-            const checkInTime = new Date(checkIn.check_in_time).getTime();
-            const checkOutTime = new Date(checkIn.check_out_time).getTime();
-            const durationHours = (checkOutTime - checkInTime) / (1000 * 60 * 60);
-            totalHours += durationHours;
+          const date = new Date(checkIn.check_in_time).toISOString().split('T')[0];
+          if (!checkInsByDate.has(date)) {
+            checkInsByDate.set(date, []);
           }
-          // If no check-out time, don't count any hours (incomplete session)
+          checkInsByDate.get(date)!.push(checkIn);
         });
+
+        // For each scheduled shift, check if staff attended and if they were on time
+        staffSchedules.forEach(schedule => {
+          const shift = (shiftsDataResult || []).find(s => s.id === schedule.shift_template_id);
+          if (!shift) return;
+
+          const checkInsOnDate = checkInsByDate.get(schedule.scheduled_date) || [];
+
+          if (checkInsOnDate.length > 0) {
+            // Staff checked in on this date - find the check-in closest to shift start time
+            const shiftDateTime = new Date(`${schedule.scheduled_date}T${shift.start_time}`);
+
+            // Find check-in closest to shift start (could be multiple check-ins per day)
+            let closestCheckIn = checkInsOnDate[0];
+            let minTimeDiff = Math.abs(new Date(checkInsOnDate[0].check_in_time).getTime() - shiftDateTime.getTime());
+
+            checkInsOnDate.forEach(checkIn => {
+              const timeDiff = Math.abs(new Date(checkIn.check_in_time).getTime() - shiftDateTime.getTime());
+              if (timeDiff < minTimeDiff) {
+                minTimeDiff = timeDiff;
+                closestCheckIn = checkIn;
+              }
+            });
+
+            shiftsAttended++;
+
+            // Check if they were late (beyond grace period)
+            const checkInTime = new Date(closestCheckIn.check_in_time);
+            const gracePeriodMs = shift.grace_period_minutes * 60 * 1000;
+            const lateBy = checkInTime.getTime() - shiftDateTime.getTime();
+
+            if (lateBy > gracePeriodMs) {
+              shiftsLate++;
+              totalLateMinutes += Math.floor(lateBy / 60000);
+            } else {
+              shiftsOnTime++;
+            }
+
+            // Calculate hours worked for this shift
+            if (closestCheckIn.check_out_time) {
+              const checkOutTime = new Date(closestCheckIn.check_out_time).getTime();
+              const checkInTimeMs = checkInTime.getTime();
+              const durationHours = (checkOutTime - checkInTimeMs) / (1000 * 60 * 60);
+              totalHours += durationHours;
+            } else {
+              // If no check-out, assume they worked the scheduled shift hours
+              const [startHour, startMin] = shift.start_time.split(':').map(Number);
+              const [endHour, endMin] = shift.end_time.split(':').map(Number);
+              const scheduledHours = (endHour * 60 + endMin - startHour * 60 - startMin) / 60;
+              totalHours += scheduledHours;
+            }
+          }
+        });
+
+        const shiftsMissed = scheduledShifts - shiftsAttended;
 
         // Round to 1 decimal place
         totalHours = Math.round(totalHours * 10) / 10;
 
-        // Calculate on-time days
-        const onTimeDays = presentDays - lateDays;
+        // For non-shift based check-ins (if any), also count them
+        // This handles cases where staff checked in but weren't scheduled
+        const uniqueDays = new Set(
+          staffCheckIns.map(c => new Date(c.check_in_time).toISOString().split('T')[0])
+        );
+        const presentDays = uniqueDays.size;
 
-        // Calculate attendance rate
-        const attendanceRate = totalDays > 0 ? (presentDays / totalDays) * 100 : 0;
+        // Calculate total days in period
+        const totalDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+
+        // Calculate attendance rate based on scheduled shifts
+        const attendanceRate = scheduledShifts > 0 ? (shiftsAttended / scheduledShifts) * 100 : 0;
 
         // Calculate average check-in time
         let avgCheckInTime = '--:--';
@@ -176,18 +253,30 @@ export default function StoreReport() {
         // Calculate total salary based on hours worked and hourly rate
         const totalSalary = totalHours * (staff.hour_rate || 0);
 
+        // Legacy metrics (kept for backward compatibility)
+        const lateCheckIns = staffCheckIns.filter(c => c.status === 'late');
+        const lateDays = new Set(
+          lateCheckIns.map(c => new Date(c.check_in_time).toDateString())
+        ).size;
+        const onTimeDays = presentDays - lateDays;
+
         return {
           staff,
           totalDays,
           presentDays,
           absentDays: totalDays - presentDays,
           lateDays,
-          lateMinutes,
+          lateMinutes: totalLateMinutes,
           totalHours,
           totalSalary,
           attendanceRate,
           onTimeDays,
           avgCheckInTime,
+          scheduledShifts,
+          shiftsAttended,
+          shiftsMissed,
+          shiftsLate,
+          shiftsOnTime,
         };
       });
 
@@ -249,11 +338,12 @@ export default function StoreReport() {
     const headers = [
       'Tên nhân viên',
       'Email',
-      'Số ngày công',
-      'Số ngày vắng',
-      'Số lần đi trễ',
+      'Ca được xếp',
+      'Ca đã làm',
+      'Ca vắng',
+      'Ca đi trễ',
+      'Ca đúng giờ',
       'Tổng phút trễ',
-      'Số ngày đúng giờ',
       'Tổng giờ làm',
       'Lương giờ (VNĐ)',
       'Tổng lương (VNĐ)',
@@ -264,11 +354,12 @@ export default function StoreReport() {
     const rows = filteredAndSortedData.map(r => [
       r.staff.full_name,
       r.staff.email,
-      r.presentDays,
-      r.absentDays,
-      r.lateDays,
+      r.scheduledShifts,
+      r.shiftsAttended,
+      r.shiftsMissed,
+      r.shiftsLate,
+      r.shiftsOnTime,
       r.lateMinutes,
-      r.onTimeDays,
       `${r.totalHours}h`,
       new Intl.NumberFormat('vi-VN').format(r.staff.hour_rate || 0),
       new Intl.NumberFormat('vi-VN').format(r.totalSalary),
@@ -336,32 +427,18 @@ export default function StoreReport() {
   const { start, end } = getDateRange();
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <Header />
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h2 className="text-2xl font-bold text-gray-800">Báo Cáo Chuyên Cần</h2>
+        <p className="text-sm text-gray-600">{store.name}</p>
+      </div>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-        {/* Header */}
-        <div className="mb-6">
-          <div className="flex items-center gap-3 mb-2">
-            <Link href={`/owner/stores/${storeId}`}>
-              <button className="text-gray-600 hover:text-gray-800">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-              </button>
-            </Link>
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">Báo Cáo Chuyên Cần</h1>
-              <p className="text-sm text-gray-600">{store.name}</p>
-            </div>
-          </div>
-        </div>
+      {/* Time Period Selector */}
+      <div className="bg-white rounded-lg shadow-lg p-6">
+        <h2 className="text-lg font-semibold text-gray-800 mb-4">Chọn Kỳ Báo Cáo</h2>
 
-        {/* Time Period Selector */}
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-800 mb-4">Chọn Kỳ Báo Cáo</h2>
-
-          <div className="flex flex-wrap gap-3 mb-4">
+        <div className="flex flex-wrap gap-3 mb-4">
             <button
               onClick={() => setPeriodType('this_month')}
               className={`px-4 py-2 rounded-lg font-semibold transition-all ${
@@ -425,8 +502,8 @@ export default function StoreReport() {
           </div>
         </div>
 
-        {/* Summary Statistics */}
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6 relative">
+      {/* Summary Statistics */}
+      <div className="bg-white rounded-lg shadow-lg p-6 relative">
           {refreshing && (
             <div className="absolute inset-0 bg-white/75 z-10 rounded-lg"></div>
           )}
@@ -453,8 +530,8 @@ export default function StoreReport() {
           </div>
         </div>
 
-        {/* Report Table */}
-        <div className="bg-white rounded-lg shadow-lg overflow-hidden mb-6 relative">
+      {/* Report Table */}
+      <div className="bg-white rounded-lg shadow-lg overflow-hidden relative">
           {refreshing && (
             <div className="absolute inset-0 bg-white/75 z-10 flex items-center justify-center">
               <div className="flex items-center gap-3 bg-white px-6 py-3 rounded-lg shadow-lg">
@@ -532,12 +609,12 @@ export default function StoreReport() {
                     </div>
                   </th>
                   <th
-                    onClick={() => handleSort('presentDays')}
+                    onClick={() => handleSort('scheduledShifts')}
                     className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
                   >
                     <div className="flex items-center justify-center gap-2">
-                      Ngày công
-                      {sortColumn === 'presentDays' && (
+                      Ca xếp
+                      {sortColumn === 'scheduledShifts' && (
                         <svg className={`w-4 h-4 ${sortDirection === 'asc' ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                         </svg>
@@ -545,12 +622,12 @@ export default function StoreReport() {
                     </div>
                   </th>
                   <th
-                    onClick={() => handleSort('absentDays')}
+                    onClick={() => handleSort('shiftsAttended')}
                     className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
                   >
                     <div className="flex items-center justify-center gap-2">
-                      Vắng
-                      {sortColumn === 'absentDays' && (
+                      Ca làm
+                      {sortColumn === 'shiftsAttended' && (
                         <svg className={`w-4 h-4 ${sortDirection === 'asc' ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                         </svg>
@@ -558,12 +635,38 @@ export default function StoreReport() {
                     </div>
                   </th>
                   <th
-                    onClick={() => handleSort('lateDays')}
+                    onClick={() => handleSort('shiftsMissed')}
                     className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
                   >
                     <div className="flex items-center justify-center gap-2">
-                      Đi trễ
-                      {sortColumn === 'lateDays' && (
+                      Ca vắng
+                      {sortColumn === 'shiftsMissed' && (
+                        <svg className={`w-4 h-4 ${sortDirection === 'asc' ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      )}
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleSort('shiftsLate')}
+                    className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+                  >
+                    <div className="flex items-center justify-center gap-2">
+                      Ca trễ
+                      {sortColumn === 'shiftsLate' && (
+                        <svg className={`w-4 h-4 ${sortDirection === 'asc' ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      )}
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleSort('shiftsOnTime')}
+                    className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+                  >
+                    <div className="flex items-center justify-center gap-2">
+                      Ca đúng giờ
+                      {sortColumn === 'shiftsOnTime' && (
                         <svg className={`w-4 h-4 ${sortDirection === 'asc' ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                         </svg>
@@ -577,19 +680,6 @@ export default function StoreReport() {
                     <div className="flex items-center justify-center gap-2">
                       Phút trễ
                       {sortColumn === 'lateMinutes' && (
-                        <svg className={`w-4 h-4 ${sortDirection === 'asc' ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                      )}
-                    </div>
-                  </th>
-                  <th
-                    onClick={() => handleSort('onTimeDays')}
-                    className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
-                  >
-                    <div className="flex items-center justify-center gap-2">
-                      Đúng giờ
-                      {sortColumn === 'onTimeDays' && (
                         <svg className={`w-4 h-4 ${sortDirection === 'asc' ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                         </svg>
@@ -624,9 +714,6 @@ export default function StoreReport() {
                         </svg>
                       )}
                     </div>
-                  </th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                    Giờ vào TB
                   </th>
                   <th
                     onClick={() => handleSort('attendanceRate')}
@@ -678,19 +765,22 @@ export default function StoreReport() {
                           </div>
                         </td>
                         <td className="px-4 py-3 text-center text-sm font-semibold text-gray-700">
-                          {report.presentDays}/{report.totalDays}
+                          {report.scheduledShifts}
                         </td>
-                        <td className="px-4 py-3 text-center text-sm text-gray-700">
-                          {report.absentDays}
+                        <td className="px-4 py-3 text-center text-sm text-green-600 font-semibold">
+                          {report.shiftsAttended}
                         </td>
-                        <td className="px-4 py-3 text-center text-sm text-gray-700">
-                          {report.lateDays}
+                        <td className="px-4 py-3 text-center text-sm text-red-600 font-semibold">
+                          {report.shiftsMissed}
+                        </td>
+                        <td className="px-4 py-3 text-center text-sm text-orange-600 font-semibold">
+                          {report.shiftsLate}
+                        </td>
+                        <td className="px-4 py-3 text-center text-sm text-blue-600 font-semibold">
+                          {report.shiftsOnTime}
                         </td>
                         <td className="px-4 py-3 text-center text-sm text-gray-700">
                           {report.lateMinutes}
-                        </td>
-                        <td className="px-4 py-3 text-center text-sm text-gray-700">
-                          {report.onTimeDays}
                         </td>
                         <td className="px-4 py-3 text-center text-sm font-semibold text-gray-700">
                           {report.totalHours}h
@@ -700,9 +790,6 @@ export default function StoreReport() {
                         </td>
                         <td className="px-4 py-3 text-center text-sm font-bold text-green-600">
                           {new Intl.NumberFormat('vi-VN').format(report.totalSalary)}
-                        </td>
-                        <td className="px-4 py-3 text-center text-sm text-gray-700">
-                          {report.avgCheckInTime}
                         </td>
                         <td className="px-4 py-3 text-center">
                           <span className={`inline-block px-3 py-1 rounded-full text-sm font-bold ${attendanceColor}`}>
@@ -718,8 +805,8 @@ export default function StoreReport() {
           </div>
         </div>
 
-        {/* Check-in Details Section */}
-        <div className="bg-white rounded-lg shadow-lg overflow-hidden mb-6">
+      {/* Check-in Details Section */}
+      <div className="bg-white rounded-lg shadow-lg overflow-hidden">
           <div
             className="px-6 py-4 border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors"
             onClick={() => setDetailsExpanded(!detailsExpanded)}
@@ -922,22 +1009,25 @@ export default function StoreReport() {
         )}
 
         {/* Notes */}
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex gap-3">
-            <svg className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <div className="text-sm text-gray-700">
-              <p className="font-semibold mb-1">Lưu ý:</p>
+              <p className="font-semibold mb-1">Hệ thống tính lương theo ca:</p>
               <ul className="list-disc list-inside space-y-1">
-                <li>Tổng giờ làm được tính dựa trên check-in (8h/ngày). Cần thêm check-out để chính xác hơn.</li>
-                <li>Phút trễ tính gần đúng. Cần thiết lập ca làm việc để tính chính xác.</li>
-                <li>Số ngày công = số ngày có check-in thành công trong kỳ.</li>
+                <li><span className="font-semibold">Ca xếp:</span> Tổng số ca làm việc được xếp cho nhân viên trong kỳ báo cáo</li>
+                <li><span className="font-semibold">Ca làm:</span> Số ca nhân viên đã check-in (có mặt)</li>
+                <li><span className="font-semibold">Ca vắng:</span> Số ca được xếp nhưng nhân viên không check-in</li>
+                <li><span className="font-semibold">Ca trễ:</span> Số ca check-in muộn hơn thời gian cho phép (quá grace period)</li>
+                <li><span className="font-semibold">Tổng giờ:</span> Tính từ check-in đến check-out thực tế. Nếu chưa check-out, tính theo giờ ca</li>
+                <li><span className="font-semibold">Tỷ lệ chuyên cần:</span> % ca đã làm / ca được xếp</li>
+                <li><span className="font-semibold">Lương:</span> Tổng giờ làm × Lương/giờ</li>
               </ul>
             </div>
           </div>
         </div>
-      </main>
     </div>
   );
 }

@@ -1,16 +1,32 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
-import { Store, CheckIn, Staff } from '@/types';
+import {
+  Store,
+  CheckIn,
+  Staff,
+  ShiftTemplate,
+  ScheduleWithDetails,
+  StaffFilter,
+  WeekSummary
+} from '@/types';
 import QRCode from 'react-qr-code';
 import Header from '@/components/Header';
+import { useToast } from '@/components/Toast';
+import StoreReport from '@/components/StoreReport';
+import StoreSchedule from '@/components/StoreSchedule';
+import StoreShifts from '@/components/StoreShifts';
+import StoreSettings from '@/components/StoreSettings';
+import StoreToday from '@/components/StoreToday';
+import StoreStaff from '@/components/StoreStaff';
 
 export default function StoreDetail() {
   const params = useParams();
   const storeId = params.id as string;
+  const toast = useToast();
 
   const [store, setStore] = useState<Store | null>(null);
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
@@ -18,13 +34,15 @@ export default function StoreDetail() {
   const [loading, setLoading] = useState(true);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    show: boolean;
+    message: string;
+    onConfirm: () => void;
+  }>({ show: false, message: '', onConfirm: () => {} });
 
-  // Expandable sections state
-  const [expandedSections, setExpandedSections] = useState({
-    staffOverview: true,
-    staff: false,
-    settings: false,
-  });
+  // Tab navigation state
+  const [activeTab, setActiveTab] = useState<'today' | 'overview' | 'shifts' | 'staff' | 'settings' | 'schedule' | 'report'>('today');
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   // Filter state for staff overview
   const [staffFilter, setStaffFilter] = useState<'all' | 'working' | 'late' | 'not_checked'>('all');
@@ -35,6 +53,45 @@ export default function StoreDetail() {
   const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
   const [editHourRate, setEditHourRate] = useState<string>('');
 
+  // Swipe-to-delete state
+  const [swipeState, setSwipeState] = useState<{ [key: string]: number }>({});
+  const [swipeStart, setSwipeStart] = useState<{ staffId: string; x: number } | null>(null);
+
+  // Shift management state
+  const [shifts, setShifts] = useState<ShiftTemplate[]>([]);
+  const [editingShift, setEditingShift] = useState<ShiftTemplate | null>(null);
+  const [showShiftForm, setShowShiftForm] = useState(false);
+  const [shiftFormData, setShiftFormData] = useState({
+    name: '',
+    start_time: '08:00',
+    end_time: '17:00',
+    grace_period_minutes: 15,
+    color: '#3B82F6',
+  });
+
+  // Schedule management state
+  const [schedules, setSchedules] = useState<ScheduleWithDetails[]>([]);
+  const [isAssigning, setIsAssigning] = useState(false);
+  const [isRemoving, setIsRemoving] = useState<string | null>(null);
+  const [currentWeekStart, setCurrentWeekStart] = useState<Date>(() => {
+    const today = new Date();
+    const day = today.getDay();
+    const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+    return new Date(today.setDate(diff));
+  });
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [selectedShift, setSelectedShift] = useState<ShiftTemplate | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
+  const [scheduleStaffSearch, setScheduleStaffSearch] = useState('');
+
+  // Touch/swipe state for mobile gestures
+  const [touchStart, setTouchStart] = useState<{ x: number; y: number; time: number } | null>(null);
+  const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
+  const [isPulling, setIsPulling] = useState(false);
+  const [pullDistance, setPullDistance] = useState(0);
+  const [longPressTimer, setLongPressTimer] = useState<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
     loadStoreData();
     // Auto-refresh every 30 seconds
@@ -42,30 +99,42 @@ export default function StoreDetail() {
     return () => clearInterval(interval);
   }, [storeId]);
 
-  async function deleteStaff(staffId: string) {
-    if (!confirm('Bạn có chắc muốn xóa nhân viên này?')) return;
-
-    try {
-      const { error } = await supabase
-        .from('staff')
-        .delete()
-        .eq('id', staffId);
-
-      if (error) throw error;
-
-      alert('Đã xóa nhân viên');
-      loadStoreData();
-    } catch (error) {
-      console.error('Error deleting staff:', error);
-      alert('Lỗi khi xóa nhân viên');
+  useEffect(() => {
+    if (storeId && activeTab === 'schedule') {
+      loadSchedules();
     }
+  }, [currentWeekStart, storeId, activeTab]);
+
+  async function deleteStaff(staffId: string) {
+    setConfirmDialog({
+      show: true,
+      message: 'Bạn có chắc muốn xóa nhân viên này?',
+      onConfirm: async () => {
+        try {
+          const { error } = await supabase
+            .from('staff')
+            .delete()
+            .eq('id', staffId);
+
+          if (error) throw error;
+
+          toast.success('Đã xóa nhân viên');
+          loadStoreData();
+        } catch (error) {
+          console.error('Error deleting staff:', error);
+          toast.error('Lỗi khi xóa nhân viên');
+        } finally {
+          setConfirmDialog({ show: false, message: '', onConfirm: () => {} });
+        }
+      }
+    });
   }
 
   async function updateStaffHourRate(staffId: string) {
     try {
       const rate = parseFloat(editHourRate);
       if (isNaN(rate) || rate < 0) {
-        alert('Vui lòng nhập số hợp lệ');
+        toast.warning('Vui lòng nhập số hợp lệ');
         return;
       }
 
@@ -76,14 +145,118 @@ export default function StoreDetail() {
 
       if (error) throw error;
 
-      alert('Đã cập nhật lương giờ');
+      toast.success('Đã cập nhật lương giờ');
       setEditingStaffId(null);
       setEditHourRate('');
       loadStoreData();
     } catch (error) {
       console.error('Error updating hour rate:', error);
-      alert('Lỗi khi cập nhật lương giờ');
+      toast.error('Lỗi khi cập nhật lương giờ');
     }
+  }
+
+  // Shift management functions
+  async function handleShiftSubmit(e: React.FormEvent) {
+    e.preventDefault();
+
+    try {
+      if (editingShift) {
+        // Update existing shift
+        const { error } = await supabase
+          .from('shift_templates')
+          .update({
+            ...shiftFormData,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', editingShift.id);
+
+        if (error) throw error;
+        toast.success('Đã cập nhật ca làm việc');
+      } else {
+        // Create new shift
+        const { error } = await supabase
+          .from('shift_templates')
+          .insert([
+            {
+              store_id: storeId,
+              ...shiftFormData,
+            },
+          ]);
+
+        if (error) throw error;
+        toast.success('Đã tạo ca làm việc mới');
+      }
+
+      resetShiftForm();
+      loadStoreData();
+    } catch (error: any) {
+      console.error('Error saving shift:', error);
+      toast.error('Lỗi: ' + error.message);
+    }
+  }
+
+  async function deleteShift(shiftId: string) {
+    setConfirmDialog({
+      show: true,
+      message: 'Bạn có chắc muốn xóa ca làm việc này? Tất cả lịch trình liên quan sẽ bị xóa.',
+      onConfirm: async () => {
+        try {
+          const { error } = await supabase
+            .from('shift_templates')
+            .delete()
+            .eq('id', shiftId);
+
+          if (error) throw error;
+
+          toast.success('Đã xóa ca làm việc');
+          loadStoreData();
+        } catch (error) {
+          console.error('Error deleting shift:', error);
+          toast.error('Lỗi khi xóa ca làm việc');
+        } finally {
+          setConfirmDialog({ show: false, message: '', onConfirm: () => {} });
+        }
+      }
+    });
+  }
+
+  function startEditShift(shift: ShiftTemplate) {
+    setEditingShift(shift);
+    setShiftFormData({
+      name: shift.name,
+      start_time: shift.start_time.substring(0, 5), // HH:mm
+      end_time: shift.end_time.substring(0, 5),
+      grace_period_minutes: shift.grace_period_minutes,
+      color: shift.color,
+    });
+    setShowShiftForm(true);
+  }
+
+  function resetShiftForm() {
+    setShiftFormData({
+      name: '',
+      start_time: '08:00',
+      end_time: '17:00',
+      grace_period_minutes: 15,
+      color: '#3B82F6',
+    });
+    setEditingShift(null);
+    setShowShiftForm(false);
+  }
+
+  function calculateShiftDuration(startTime: string, endTime: string): string {
+    const [startHour, startMin] = startTime.split(':').map(Number);
+    const [endHour, endMin] = endTime.split(':').map(Number);
+
+    let hours = endHour - startHour;
+    let minutes = endMin - startMin;
+
+    if (minutes < 0) {
+      hours--;
+      minutes += 60;
+    }
+
+    return `${hours}h${minutes > 0 ? ` ${minutes}p` : ''}`;
   }
 
   async function updateStoreSettings(settings: {
@@ -105,11 +278,11 @@ export default function StoreDetail() {
 
       if (error) throw error;
 
-      alert('Đã cập nhật cài đặt thành công!');
+      toast.success('Đã cập nhật cài đặt thành công!');
       loadStoreData();
     } catch (error) {
       console.error('Error updating settings:', error);
-      alert('Lỗi khi cập nhật cài đặt');
+      toast.error('Lỗi khi cập nhật cài đặt');
     } finally {
       setSettingsLoading(false);
     }
@@ -148,6 +321,17 @@ export default function StoreDetail() {
       if (!staffError) {
         setStaff(staffData || []);
       }
+
+      // Load shifts
+      const { data: shiftsData, error: shiftsError } = await supabase
+        .from('shift_templates')
+        .select('*')
+        .eq('store_id', storeId)
+        .order('start_time');
+
+      if (!shiftsError) {
+        setShifts(shiftsData || []);
+      }
     } catch (error: any) {
       console.error('Error loading store data:', error);
       console.error('Error details:', {
@@ -184,18 +368,6 @@ export default function StoreDetail() {
     img.src = 'data:image/svg+xml;base64,' + btoa(svgData);
   }
 
-  function toggleSection(section: keyof typeof expandedSections) {
-    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
-
-    // Scroll to section after a brief delay to allow animation
-    setTimeout(() => {
-      const element = document.getElementById(`section-${section}`);
-      if (element) {
-        element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    }, 100);
-  }
-
   function toggleStaffExpand(staffId: string) {
     setExpandedStaff(prev => {
       const newSet = new Set(prev);
@@ -207,6 +379,343 @@ export default function StoreDetail() {
       return newSet;
     });
   }
+
+  // Swipe-to-delete handlers
+  function handleStaffTouchStart(e: React.TouchEvent, staffId: string) {
+    const touch = e.touches[0];
+    setSwipeStart({ staffId, x: touch.clientX });
+  }
+
+  function handleStaffTouchMove(e: React.TouchEvent, staffId: string) {
+    if (!swipeStart || swipeStart.staffId !== staffId) return;
+
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - swipeStart.x;
+
+    // Only allow left swipe (negative deltaX)
+    if (deltaX < 0) {
+      setSwipeState(prev => ({ ...prev, [staffId]: Math.max(deltaX, -100) }));
+    }
+  }
+
+  function handleStaffTouchEnd(staffId: string) {
+    const swipeDistance = swipeState[staffId] || 0;
+
+    if (swipeDistance < -60) {
+      // Swipe far enough - show delete button
+      setSwipeState(prev => ({ ...prev, [staffId]: -80 }));
+    } else {
+      // Not far enough - reset
+      setSwipeState(prev => ({ ...prev, [staffId]: 0 }));
+    }
+
+    setSwipeStart(null);
+  }
+
+  // Schedule functions
+  async function loadSchedules() {
+    try {
+      const weekEnd = new Date(currentWeekStart);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+
+      const { data, error: schedError } = await supabase
+        .from('staff_schedules')
+        .select(`
+          *,
+          shift_template:shift_templates(*),
+          staff(*)
+        `)
+        .eq('store_id', storeId)
+        .gte('scheduled_date', formatDateSchedule(currentWeekStart))
+        .lte('scheduled_date', formatDateSchedule(weekEnd));
+
+      if (schedError) throw schedError;
+      setSchedules(data || []);
+    } catch (err) {
+      console.error('Error loading schedules:', err);
+    }
+  }
+
+  function formatDateSchedule(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  function formatDateDisplay(date: Date, short: boolean = false): string {
+    const days = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+    if (short) {
+      return days[date.getDay()];
+    }
+    return `${days[date.getDay()]} - ${date.getDate()}/${date.getMonth() + 1}`;
+  }
+
+  function getWeekDays(): Date[] {
+    const days: Date[] = [];
+    for (let i = 0; i < 7; i++) {
+      const day = new Date(currentWeekStart);
+      day.setDate(day.getDate() + i);
+      days.push(day);
+    }
+    return days;
+  }
+
+  function getStaffForShiftAndDate(shiftId: string, date: Date): ScheduleWithDetails[] {
+    const dateStr = formatDateSchedule(date);
+    return schedules.filter(
+      (s) => s.shift_template_id === shiftId && s.scheduled_date === dateStr
+    );
+  }
+
+  function openAssignModal(shift: ShiftTemplate, date: Date) {
+    const existingStaff = getStaffForShiftAndDate(shift.id, date).map(s => s.staff_id);
+    setSelectedShift(shift);
+    setSelectedDate(formatDateSchedule(date));
+    setSelectedStaffIds(existingStaff);
+    setScheduleStaffSearch('');
+    setShowAssignModal(true);
+  }
+
+  function toggleStaffSelection(staffId: string) {
+    setSelectedStaffIds(prev =>
+      prev.includes(staffId)
+        ? prev.filter(id => id !== staffId)
+        : [...prev, staffId]
+    );
+  }
+
+  async function handleSaveStaff() {
+    if (!selectedShift || !selectedDate) {
+      toast.warning('Vui lòng chọn đầy đủ thông tin');
+      return;
+    }
+
+    setIsAssigning(true);
+
+    try {
+      const existing = getStaffForShiftAndDate(selectedShift.id, new Date(selectedDate));
+      const existingStaffIds = existing.map(s => s.staff_id);
+
+      const toAdd = selectedStaffIds.filter(id => !existingStaffIds.includes(id));
+      const toRemove = existingStaffIds.filter(id => !selectedStaffIds.includes(id));
+
+      if (toRemove.length > 0) {
+        const scheduleIdsToRemove = existing
+          .filter(s => toRemove.includes(s.staff_id))
+          .map(s => s.id);
+
+        const { error: deleteError } = await supabase
+          .from('staff_schedules')
+          .delete()
+          .in('id', scheduleIdsToRemove);
+
+        if (deleteError) throw deleteError;
+      }
+
+      if (toAdd.length > 0) {
+        const newSchedules = toAdd.map(staffId => ({
+          staff_id: staffId,
+          store_id: storeId,
+          shift_template_id: selectedShift.id,
+          scheduled_date: selectedDate,
+          notes: null,
+        }));
+
+        const { error: insertError } = await supabase
+          .from('staff_schedules')
+          .insert(newSchedules);
+
+        if (insertError) throw insertError;
+      }
+
+      toast.success('Đã cập nhật lịch làm việc');
+      setShowAssignModal(false);
+      loadSchedules();
+    } catch (err: any) {
+      console.error('Error saving staff:', err);
+      toast.error('Lỗi: ' + err.message);
+    } finally {
+      setIsAssigning(false);
+    }
+  }
+
+  async function handleRemoveStaffFromShift(scheduleId: string, staffName: string) {
+    setIsRemoving(scheduleId);
+    try {
+      const { error: deleteError } = await supabase
+        .from('staff_schedules')
+        .delete()
+        .eq('id', scheduleId);
+
+      if (deleteError) throw deleteError;
+
+      toast.success(`Đã xóa ${staffName} khỏi ca`);
+      loadSchedules();
+    } catch (err) {
+      console.error('Error removing schedule:', err);
+      toast.error('Lỗi khi xóa lịch');
+    } finally {
+      setIsRemoving(null);
+    }
+  }
+
+  function navigateWeek(direction: 'prev' | 'next') {
+    const newDate = new Date(currentWeekStart);
+    newDate.setDate(newDate.getDate() + (direction === 'next' ? 7 : -7));
+    setCurrentWeekStart(newDate);
+  }
+
+  function goToToday() {
+    const today = new Date();
+    const day = today.getDay();
+    const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+    setCurrentWeekStart(new Date(today.setDate(diff)));
+  }
+
+  async function copyPreviousWeek() {
+    try {
+      const prevWeekStart = new Date(currentWeekStart);
+      prevWeekStart.setDate(prevWeekStart.getDate() - 7);
+      const prevWeekEnd = new Date(prevWeekStart);
+      prevWeekEnd.setDate(prevWeekEnd.getDate() + 6);
+
+      const { data: prevSchedules, error: fetchError } = await supabase
+        .from('staff_schedules')
+        .select('*')
+        .eq('store_id', storeId)
+        .gte('scheduled_date', formatDateSchedule(prevWeekStart))
+        .lte('scheduled_date', formatDateSchedule(prevWeekEnd));
+
+      if (fetchError) throw fetchError;
+
+      if (!prevSchedules || prevSchedules.length === 0) {
+        toast.warning('Không có lịch nào ở tuần trước để sao chép');
+        return;
+      }
+
+      const newSchedules = prevSchedules.map((s) => {
+        const oldDate = new Date(s.scheduled_date);
+        const newDate = new Date(oldDate);
+        newDate.setDate(newDate.getDate() + 7);
+
+        return {
+          staff_id: s.staff_id,
+          store_id: s.store_id,
+          shift_template_id: s.shift_template_id,
+          scheduled_date: formatDateSchedule(newDate),
+          notes: s.notes,
+        };
+      });
+
+      const { error: insertError } = await supabase
+        .from('staff_schedules')
+        .insert(newSchedules);
+
+      if (insertError) {
+        if (insertError.code === '23505') {
+          toast.warning('Một số ca đã tồn tại trong tuần này');
+        } else {
+          throw insertError;
+        }
+      } else {
+        toast.success('Đã sao chép lịch tuần trước');
+      }
+
+      loadSchedules();
+    } catch (err: any) {
+      console.error('Error copying week:', err);
+      toast.error('Lỗi: ' + err.message);
+    }
+  }
+
+  // Swipe gesture handlers
+  function handleTouchStart(e: React.TouchEvent) {
+    const touch = e.touches[0];
+    setTouchStart({ x: touch.clientX, y: touch.clientY, time: Date.now() });
+    setTouchEnd(null);
+
+    // Long press detection for copy previous week
+    const timer = setTimeout(() => {
+      copyPreviousWeek();
+      // Haptic feedback on mobile
+      if ('vibrate' in navigator) {
+        navigator.vibrate(50);
+      }
+    }, 800); // 800ms long press
+    setLongPressTimer(timer);
+  }
+
+  function handleTouchMove(e: React.TouchEvent) {
+    const touch = e.touches[0];
+    setTouchEnd({ x: touch.clientX, y: touch.clientY });
+
+    // Cancel long press if user moves too much
+    if (touchStart && longPressTimer) {
+      const deltaX = Math.abs(touch.clientX - touchStart.x);
+      const deltaY = Math.abs(touch.clientY - touchStart.y);
+      if (deltaX > 10 || deltaY > 10) {
+        clearTimeout(longPressTimer);
+        setLongPressTimer(null);
+      }
+    }
+
+    // Pull to refresh detection
+    if (touchStart && touch.clientY - touchStart.y > 0 && window.scrollY === 0) {
+      const distance = touch.clientY - touchStart.y;
+      setIsPulling(true);
+      setPullDistance(Math.min(distance, 100));
+    }
+  }
+
+  function handleTouchEnd() {
+    // Clear long press timer
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      setLongPressTimer(null);
+    }
+
+    // Handle pull to refresh
+    if (isPulling && pullDistance > 60) {
+      loadSchedules();
+      toast.success('Đã làm mới lịch');
+    }
+    setIsPulling(false);
+    setPullDistance(0);
+
+    // Handle horizontal swipe
+    if (!touchStart || !touchEnd) return;
+
+    const deltaX = touchEnd.x - touchStart.x;
+    const deltaY = Math.abs(touchEnd.y - touchStart.y);
+    const swipeTime = Date.now() - touchStart.time;
+
+    // Only count as swipe if horizontal movement > vertical and fast enough
+    if (Math.abs(deltaX) > 50 && deltaX > deltaY && swipeTime < 300) {
+      if (deltaX > 0) {
+        navigateWeek('prev');
+      } else {
+        navigateWeek('next');
+      }
+    }
+
+    setTouchStart(null);
+    setTouchEnd(null);
+  }
+
+  // Week summary for schedule
+  const weekSummary = useMemo(() => {
+    const totalShifts = schedules.length;
+    const staffCount = new Set(schedules.map(s => s.staff_id)).size;
+    const totalHours = schedules.reduce((sum, s) => {
+      if (!s.shift_template) return sum;
+      const start = s.shift_template.start_time.split(':').map(Number);
+      const end = s.shift_template.end_time.split(':').map(Number);
+      const hours = (end[0] * 60 + end[1] - (start[0] * 60 + start[1])) / 60;
+      return sum + hours;
+    }, 0);
+    return { totalShifts, staffCount, totalHours: Math.round(totalHours) };
+  }, [schedules]);
 
   // Calculate today's stats
   const today = new Date().toDateString();
@@ -251,7 +760,7 @@ export default function StoreDetail() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <Link href="/owner">
               <button className="text-gray-600 hover:text-gray-800">
@@ -261,700 +770,309 @@ export default function StoreDetail() {
               </button>
             </Link>
             <div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">{store.name}</h1>
-              <p className="text-sm text-gray-600">{store.address}</p>
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-800">{store.name}</h1>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link href={`/owner/stores/${storeId}/report`}>
-              <button className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-3 sm:px-4 py-2 rounded-lg font-semibold transition-all">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <span className="hidden md:inline">Báo cáo</span>
-              </button>
-            </Link>
-            <button
-              onClick={() => toggleSection('settings')}
-              className="text-gray-600 hover:text-gray-800 p-2 rounded-lg hover:bg-white/50 transition-all"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            </button>
           </div>
         </div>
 
-        {/* STAFF OVERVIEW */}
-        <div id="section-staffOverview" className="bg-white rounded-lg shadow-lg mb-4 overflow-hidden">
+        {/* Desktop Tab Navigation */}
+        <div className="hidden sm:flex bg-white rounded-lg shadow-lg mb-4 p-2 gap-2 relative">
           <button
-            onClick={() => toggleSection('staffOverview')}
-            className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-all"
+            onClick={() => setActiveTab('today')}
+            className={`flex-1 px-4 py-3 rounded-lg font-semibold transition-all ${
+              activeTab === 'today'
+                ? 'bg-blue-600 text-white'
+                : 'text-gray-700 hover:bg-gray-100'
+            }`}
           >
-            <h2 className="text-xl font-bold text-gray-800">
-              TỔNG QUAN NHÂN VIÊN
-            </h2>
-            <svg
-              className={`w-5 h-5 text-gray-600 transition-transform ${expandedSections.staffOverview ? 'rotate-180' : ''}`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
+            Hôm Nay
           </button>
-
-          {expandedSections.staffOverview && (
-            <div className="px-6 pb-6">
-              {/* Filter Tabs */}
-              <div className="grid grid-cols-4 gap-2 mb-4">
+          <button
+            onClick={() => setActiveTab('schedule')}
+            className={`flex-1 px-4 py-3 rounded-lg font-semibold transition-all ${
+              activeTab === 'schedule'
+                ? 'bg-blue-600 text-white'
+                : 'text-gray-700 hover:bg-gray-100'
+            }`}
+          >
+            Lịch
+          </button>
+          <button
+            onClick={() => setActiveTab('report')}
+            className={`flex-1 px-4 py-3 rounded-lg font-semibold transition-all ${
+              activeTab === 'report'
+                ? 'bg-blue-600 text-white'
+                : 'text-gray-700 hover:bg-gray-100'
+            }`}
+          >
+            Báo Cáo
+          </button>
+          <div className="relative flex-1">
+            <button
+              type="button"
+              onClick={() => setShowMoreMenu(!showMoreMenu)}
+              className={`w-full px-4 py-3 rounded-lg font-semibold transition-all ${
+                activeTab === 'settings' || activeTab === 'shifts' || activeTab === 'staff' || showMoreMenu
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-700 hover:bg-gray-100'
+              } flex items-center justify-center gap-2`}
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+              </svg>
+              More
+            </button>
+            {showMoreMenu && (
+              <div className="absolute right-0 top-full mt-2 bg-white rounded-lg shadow-xl border border-gray-200 py-2 min-w-[200px] z-50">
                 <button
-                  onClick={() => setStaffFilter('all')}
-                  className={`px-3 py-2 rounded-lg font-semibold text-sm transition-all ${
-                    staffFilter === 'all'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('staff');
+                    setShowMoreMenu(false);
+                  }}
+                  className="w-full text-left px-4 py-3 hover:bg-gray-100 transition-all flex items-center gap-3"
                 >
-                  <div>Tất cả</div>
-                  <div className={`text-xs mt-1 ${staffFilter === 'all' ? 'text-blue-100' : 'text-gray-500'}`}>
-                    ({staff.length})
-                  </div>
+                  <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                  <span className="font-semibold text-gray-700">Nhân Viên</span>
                 </button>
                 <button
-                  onClick={() => setStaffFilter('working')}
-                  className={`px-3 py-2 rounded-lg font-semibold text-sm transition-all ${
-                    staffFilter === 'working'
-                      ? 'bg-green-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('shifts');
+                    setShowMoreMenu(false);
+                  }}
+                  className="w-full text-left px-4 py-3 hover:bg-gray-100 transition-all flex items-center gap-3"
                 >
-                  <div>Đang làm</div>
-                  <div className={`text-xs mt-1 ${staffFilter === 'working' ? 'text-green-100' : 'text-gray-500'}`}>
-                    ({currentlyWorking.length})
-                  </div>
+                  <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="font-semibold text-gray-700">Quản Lý Ca</span>
                 </button>
                 <button
-                  onClick={() => setStaffFilter('late')}
-                  className={`px-3 py-2 rounded-lg font-semibold text-sm transition-all ${
-                    staffFilter === 'late'
-                      ? 'bg-yellow-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('settings');
+                    setShowMoreMenu(false);
+                  }}
+                  className="w-full text-left px-4 py-3 hover:bg-gray-100 transition-all flex items-center gap-3"
                 >
-                  <div>Muộn</div>
-                  <div className={`text-xs mt-1 ${staffFilter === 'late' ? 'text-yellow-100' : 'text-gray-500'}`}>
-                    ({todayCheckIns.filter((c: CheckIn) => c.status === 'late').length})
-                  </div>
-                </button>
-                <button
-                  onClick={() => setStaffFilter('not_checked')}
-                  className={`px-3 py-2 rounded-lg font-semibold text-sm transition-all ${
-                    staffFilter === 'not_checked'
-                      ? 'bg-orange-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  <div>Chưa check</div>
-                  <div className={`text-xs mt-1 ${staffFilter === 'not_checked' ? 'text-orange-100' : 'text-gray-500'}`}>
-                    ({notCheckedIn})
-                  </div>
+                  <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <span className="font-semibold text-gray-700">Cài Đặt</span>
                 </button>
               </div>
+            )}
+          </div>
+        </div>
 
-              {/* Search Box */}
-              <div className="mb-4">
-                <input
-                  type="text"
-                  placeholder="Tìm tên..."
-                  value={staffSearch}
-                  onChange={(e) => setStaffSearch(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
+        {/* Tab Content */}
+        <div className="bg-white rounded-lg shadow-lg mb-20 sm:mb-4 overflow-hidden">
+          {/* TODAY TAB */}
+          {activeTab === 'today' && (
+            <StoreToday
+              staff={staff}
+              todayCheckIns={todayCheckIns}
+              staffFilter={staffFilter}
+              staffSearch={staffSearch}
+              expandedStaff={expandedStaff}
+              setStaffFilter={setStaffFilter}
+              setStaffSearch={setStaffSearch}
+              toggleStaffExpand={toggleStaffExpand}
+            />
+          )}
 
-              {/* Staff Table */}
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                        Nhân viên
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                        Check-in
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                        Check-out
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                        Thời gian làm
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                        Trạng thái
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {staff
-                      .filter((s: Staff) => {
-                        // Filter by search first
-                        if (!staffSearch) return true;
-                        return s.full_name.toLowerCase().includes(staffSearch.toLowerCase());
-                      })
-                      .flatMap((s: Staff) => {
-                        // Get ALL check-ins for this staff today and sort by check_in_time ascending (earliest first)
-                        const staffCheckIns = todayCheckIns
-                          .filter((c: CheckIn) => c.staff_id === s.id)
-                          .sort((a, b) => new Date(a.check_in_time).getTime() - new Date(b.check_in_time).getTime());
+          {/* STAFF TAB */}
+          {activeTab === 'staff' && (
+            <StoreStaff
+              storeId={storeId}
+              staff={staff}
+              swipeState={swipeState}
+              swipeStart={swipeStart}
+              editingStaffId={editingStaffId}
+              editHourRate={editHourRate}
+              setSwipeState={setSwipeState}
+              setEditingStaffId={setEditingStaffId}
+              setEditHourRate={setEditHourRate}
+              handleStaffTouchStart={handleStaffTouchStart}
+              handleStaffTouchMove={handleStaffTouchMove}
+              handleStaffTouchEnd={handleStaffTouchEnd}
+              deleteStaff={deleteStaff}
+              updateStaffHourRate={updateStaffHourRate}
+            />
+          )}
 
-                        // Apply status filter
-                        const filteredCheckIns = staffCheckIns.filter((checkIn: CheckIn) => {
-                          if (staffFilter === 'working') {
-                            return checkIn.status === 'success' && !checkIn.check_out_time;
-                          } else if (staffFilter === 'late') {
-                            return checkIn.status === 'late' && !checkIn.check_out_time;
-                          } else if (staffFilter === 'not_checked') {
-                            return false; // Will handle "not checked" separately
-                          }
-                          return true; // 'all'
-                        });
+          {/* SCHEDULE TAB */}
+          {activeTab === 'schedule' && (
+            <StoreSchedule
+              storeId={storeId}
+              staff={staff}
+              shifts={shifts}
+              schedules={schedules}
+              currentWeekStart={currentWeekStart}
+              isRemoving={isRemoving}
+              weekSummary={weekSummary}
+              copyPreviousWeek={copyPreviousWeek}
+              navigateWeek={navigateWeek}
+              goToToday={goToToday}
+              getWeekDays={getWeekDays}
+              formatDateSchedule={formatDateSchedule}
+              formatDateDisplay={formatDateDisplay}
+              getStaffForShiftAndDate={getStaffForShiftAndDate}
+              openAssignModal={openAssignModal}
+              handleRemoveStaffFromShift={handleRemoveStaffFromShift}
+              handleTouchStart={handleTouchStart}
+              handleTouchMove={handleTouchMove}
+              handleTouchEnd={handleTouchEnd}
+            />
+          )}
 
-                        const initials = s.full_name
-                          ?.split(' ')
-                          .slice(-2)
-                          .map((n: string) => n[0])
-                          .join('')
-                          .toUpperCase() || '??';
-
-                        // If no check-ins and filter is 'not_checked' or 'all', show the staff
-                        if (staffCheckIns.length === 0 && (staffFilter === 'not_checked' || staffFilter === 'all')) {
-                          return [(
-                            <tr key={`${s.id}-no-checkin`} className="hover:bg-gray-50 transition-colors">
-                              <td className="px-4 py-3">
-                                <div className="flex items-center gap-3">
-                                  <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm bg-gradient-to-br from-gray-400 to-gray-500">
-                                    {initials}
-                                  </div>
-                                  <div>
-                                    <div className="font-semibold text-gray-800">{s.full_name}</div>
-                                    <div className="text-xs text-gray-500">{s.email}</div>
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="px-4 py-3 text-sm text-gray-700">
-                                <span className="text-gray-400">--:--</span>
-                              </td>
-                              <td className="px-4 py-3 text-sm text-gray-700">
-                                <span className="text-gray-400">--:--</span>
-                              </td>
-                              <td className="px-4 py-3 text-sm text-gray-700">
-                                <span className="text-gray-400">--</span>
-                              </td>
-                              <td className="px-4 py-3">
-                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">
-                                  Chưa điểm danh
-                                </span>
-                              </td>
-                            </tr>
-                          )];
-                        }
-
-                        if (filteredCheckIns.length === 0) return [];
-
-                        const isExpanded = expandedStaff.has(s.id);
-                        const hasMultipleShifts = filteredCheckIns.length > 1;
-
-                        // Get latest check-in to show in main row
-                        const latestCheckIn = filteredCheckIns[filteredCheckIns.length - 1];
-                        const hasCheckedOut = latestCheckIn.check_out_time;
-                        const endTime = hasCheckedOut && latestCheckIn.check_out_time
-                          ? new Date(latestCheckIn.check_out_time).getTime()
-                          : Date.now();
-                        const minutes = Math.floor((endTime - new Date(latestCheckIn.check_in_time).getTime()) / 1000 / 60);
-                        const hours = Math.floor(minutes / 60);
-                        const mins = minutes % 60;
-
-                        const mainRowData = {
-                          checkInTime: latestCheckIn.check_in_time,
-                          checkOutTime: latestCheckIn.check_out_time,
-                          workDuration: `${hours}h ${mins}m`,
-                          isWorking: latestCheckIn.status === 'success' && !latestCheckIn.check_out_time,
-                          isLate: latestCheckIn.status === 'late',
-                          hasCheckedOut: !!hasCheckedOut,
-                        };
-
-                        const renderCheckInRow = (checkIn: CheckIn, isMainRow: boolean = false, shiftNumber?: number) => {
-                          // For main row, use mainRowData; for sub-rows, calculate from checkIn
-                          const isWorking = isMainRow ? mainRowData.isWorking : checkIn.status === 'success';
-                          const isLate = isMainRow ? mainRowData.isLate : checkIn.status === 'late';
-                          const hasCheckedOut = isMainRow ? mainRowData.hasCheckedOut : !!checkIn.check_out_time;
-
-                          let workDuration = '';
-                          let checkInTimeToShow = '';
-                          let checkOutTimeToShow = '';
-
-                          if (isMainRow) {
-                            workDuration = mainRowData.workDuration;
-                            checkInTimeToShow = mainRowData.checkInTime;
-                            checkOutTimeToShow = mainRowData.checkOutTime || '';
-                          } else {
-                            const endTime = checkIn.check_out_time
-                              ? new Date(checkIn.check_out_time).getTime()
-                              : Date.now();
-                            const minutes = Math.floor((endTime - new Date(checkIn.check_in_time).getTime()) / 1000 / 60);
-                            const hours = Math.floor(minutes / 60);
-                            const mins = minutes % 60;
-                            workDuration = `${hours}h ${mins}m`;
-                            checkInTimeToShow = checkIn.check_in_time;
-                            checkOutTimeToShow = checkIn.check_out_time || '';
-                          }
-
-                          return (
-                            <tr
-                              key={isMainRow ? `${s.id}-main` : `${s.id}-${checkIn.id}`}
-                              className={`${isMainRow ? 'hover:bg-gray-50' : 'bg-gray-50/50'} transition-colors ${isMainRow && hasMultipleShifts ? 'cursor-pointer' : ''}`}
-                              onClick={isMainRow && hasMultipleShifts ? () => toggleStaffExpand(s.id) : undefined}
-                            >
-                              <td className="px-4 py-3">
-                                <div className={`flex items-center gap-3 ${!isMainRow ? 'pl-12' : ''}`}>
-                                  {isMainRow ? (
-                                    <>
-                                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm ${
-                                        isWorking ? 'bg-gradient-to-br from-green-500 to-green-600' :
-                                        isLate ? 'bg-gradient-to-br from-yellow-500 to-yellow-600' :
-                                        'bg-gradient-to-br from-gray-400 to-gray-500'
-                                      }`}>
-                                        {initials}
-                                      </div>
-                                      <div className="flex-1">
-                                        <div className="flex items-center gap-2">
-                                          <span className="font-semibold text-gray-800">{s.full_name}</span>
-                                          {hasMultipleShifts && (
-                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">
-                                              {filteredCheckIns.length} ca
-                                              <svg
-                                                className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                                                fill="none"
-                                                stroke="currentColor"
-                                                viewBox="0 0 24 24"
-                                              >
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                              </svg>
-                                            </span>
-                                          )}
-                                        </div>
-                                        <div className="text-xs text-gray-500">{s.email}</div>
-                                      </div>
-                                    </>
-                                  ) : (
-                                    <div className="text-sm text-gray-600">
-                                      Ca {shiftNumber}
-                                    </div>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="px-4 py-3 text-sm text-gray-700">
-                                {new Date(checkInTimeToShow).toLocaleTimeString('vi-VN', {
-                                  hour: '2-digit',
-                                  minute: '2-digit'
-                                })}
-                              </td>
-                              <td className="px-4 py-3 text-sm text-gray-700">
-                                {hasCheckedOut && checkOutTimeToShow ? (
-                                  new Date(checkOutTimeToShow).toLocaleTimeString('vi-VN', {
-                                    hour: '2-digit',
-                                    minute: '2-digit'
-                                  })
-                                ) : (
-                                  <span className="text-blue-500">...</span>
-                                )}
-                              </td>
-                              <td className="px-4 py-3 text-sm text-gray-700">
-                                {workDuration}
-                              </td>
-                              <td className="px-4 py-3">
-                                {hasCheckedOut ? (
-                                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
-                                    ✓ Đã về
-                                  </span>
-                                ) : isWorking ? (
-                                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
-                                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                                    Đang làm
-                                  </span>
-                                ) : isLate ? (
-                                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700">
-                                    ⚠ Muộn
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">
-                                    Chưa điểm danh
-                                  </span>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        };
-
-                        // Render main row + expanded rows
-                        const rows = [renderCheckInRow(latestCheckIn, true)];
-
-                        if (isExpanded && hasMultipleShifts) {
-                          filteredCheckIns.forEach((checkIn, index) => {
-                            rows.push(renderCheckInRow(checkIn, false, index + 1));
-                          });
-                        }
-
-                        return rows;
-                      })}
-                  </tbody>
-                </table>
-              </div>
+          {/* REPORT TAB */}
+          {activeTab === 'report' && store && (
+            <div className="px-4 sm:px-6 py-6">
+              <StoreReport storeId={storeId} />
             </div>
+          )}
+
+          {/* SHIFTS TAB */}
+          {activeTab === 'shifts' && (
+            <StoreShifts
+              shifts={shifts}
+              showShiftForm={showShiftForm}
+              editingShift={editingShift}
+              shiftFormData={shiftFormData}
+              setShowShiftForm={setShowShiftForm}
+              setEditingShift={setEditingShift}
+              setShiftFormData={setShiftFormData}
+              handleShiftSubmit={handleShiftSubmit}
+              calculateShiftDuration={calculateShiftDuration}
+              resetShiftForm={resetShiftForm}
+              startEditShift={startEditShift}
+              deleteShift={deleteShift}
+            />
+          )}
+
+          {/* SETTINGS TAB */}
+          {activeTab === 'settings' && (
+            <StoreSettings
+              store={store}
+              settingsLoading={settingsLoading}
+              downloadQRCode={downloadQRCode}
+              updateStoreSettings={updateStoreSettings}
+              onCopyLink={() => {
+                navigator.clipboard.writeText(`https://www.diemdanh.net/checkin/submit?store=${store.id}`);
+                toast.success('Đã sao chép link!');
+              }}
+            />
           )}
         </div>
 
-        {/* STAFF MANAGEMENT */}
-        <div id="section-staff" className="bg-white rounded-lg shadow-lg mb-4 overflow-hidden">
-          <button
-            onClick={() => toggleSection('staff')}
-            className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-all"
-          >
-            <h2 className="text-xl font-bold text-gray-800">
-              NHÂN VIÊN ({staff.length})
-            </h2>
-            <svg
-              className={`w-5 h-5 text-gray-600 transition-transform ${expandedSections.staff ? 'rotate-180' : ''}`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+        {/* Mobile Bottom Navigation */}
+        <div className="sm:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-40">
+          <div className="grid grid-cols-4 gap-1 p-2">
+            <button
+              onClick={() => setActiveTab('today')}
+              className={`w-full flex flex-col items-center py-2 px-1 rounded-lg transition-all ${
+                activeTab === 'today'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-600'
+              }`}
             >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-
-          {expandedSections.staff && (
-            <div className="px-6 pb-6">
-              <div className="mb-4">
-                <Link href={`/owner/stores/${storeId}/add-staff`}>
-                  <button className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-semibold transition-all flex items-center justify-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              <svg className="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="text-xs font-semibold">Hôm Nay</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('schedule')}
+              className={`w-full flex flex-col items-center py-2 px-1 rounded-lg transition-all ${
+                activeTab === 'schedule'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-600'
+              }`}
+            >
+              <svg className="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              <span className="text-xs font-semibold">Lịch</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('report')}
+              className={`w-full flex flex-col items-center py-2 px-1 rounded-lg transition-all ${
+                activeTab === 'report'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-600'
+              }`}
+            >
+              <svg className="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <span className="text-xs font-semibold">Báo Cáo</span>
+            </button>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowMoreMenu(!showMoreMenu)}
+                className={`w-full flex flex-col items-center py-2 px-1 rounded-lg transition-all ${
+                  activeTab === 'settings' || activeTab === 'shifts' || activeTab === 'staff' || showMoreMenu
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-600'
+                }`}
+              >
+                <svg className="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                </svg>
+                <span className="text-xs font-semibold">More</span>
+              </button>
+              {showMoreMenu && (
+                <div className="absolute bottom-full right-0 mb-2 bg-white rounded-lg shadow-xl border border-gray-200 py-2 min-w-[200px] z-50">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('staff');
+                      setShowMoreMenu(false);
+                    }}
+                    className="w-full text-left px-4 py-3 hover:bg-gray-100 transition-all flex items-center gap-3"
+                  >
+                    <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                     </svg>
-                    Thêm Nhân Viên
+                    <span className="font-semibold text-gray-700">Nhân Viên</span>
                   </button>
-                </Link>
-              </div>
-
-              {staff.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  Chưa có nhân viên nào
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {staff.map((member) => (
-                    <div key={member.id} className="bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition-all">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white font-bold shadow">
-                            {member.full_name?.split(' ').slice(-2).map(n => n[0]).join('').toUpperCase() || '??'}
-                          </div>
-                          <div>
-                            <p className="font-semibold text-gray-800">{member.full_name}</p>
-                            <p className="text-sm text-gray-600">{member.email}</p>
-                            {member.phone && (
-                              <p className="text-sm text-gray-500">{member.phone}</p>
-                            )}
-                            {editingStaffId === member.id ? (
-                              <div className="flex items-center gap-2 mt-2">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="1000"
-                                  value={editHourRate}
-                                  onChange={(e) => setEditHourRate(e.target.value)}
-                                  className="w-32 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                  placeholder="VNĐ/giờ"
-                                  autoFocus
-                                />
-                                <button
-                                  onClick={() => updateStaffHourRate(member.id)}
-                                  className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm font-semibold transition-all"
-                                >
-                                  Lưu
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setEditingStaffId(null);
-                                    setEditHourRate('');
-                                  }}
-                                  className="bg-gray-300 hover:bg-gray-400 text-gray-700 px-3 py-1 rounded text-sm font-semibold transition-all"
-                                >
-                                  Hủy
-                                </button>
-                              </div>
-                            ) : (
-                              <p className="text-sm font-medium text-green-600">
-                                {new Intl.NumberFormat('vi-VN').format(member.hour_rate || 0)} VNĐ/giờ
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex gap-2">
-                          {editingStaffId !== member.id && (
-                            <button
-                              onClick={() => {
-                                setEditingStaffId(member.id);
-                                setEditHourRate(String(member.hour_rate || 0));
-                              }}
-                              className="text-blue-600 hover:text-blue-800 font-semibold px-4 py-2 rounded-lg hover:bg-blue-50 transition-all"
-                            >
-                              Sửa lương
-                            </button>
-                          )}
-                          <button
-                            onClick={() => deleteStaff(member.id)}
-                            className="text-red-600 hover:text-red-800 font-semibold px-4 py-2 rounded-lg hover:bg-red-50 transition-all"
-                          >
-                            Xóa
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('shifts');
+                      setShowMoreMenu(false);
+                    }}
+                    className="w-full text-left px-4 py-3 hover:bg-gray-100 transition-all flex items-center gap-3"
+                  >
+                    <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="font-semibold text-gray-700">Quản Lý Ca</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('settings');
+                      setShowMoreMenu(false);
+                    }}
+                    className="w-full text-left px-4 py-3 hover:bg-gray-100 transition-all flex items-center gap-3"
+                  >
+                    <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <span className="font-semibold text-gray-700">Cài Đặt</span>
+                  </button>
                 </div>
               )}
             </div>
-          )}
-        </div>
-
-        {/* SETTINGS */}
-        <div id="section-settings" className="bg-white rounded-lg shadow-lg mb-4 overflow-hidden">
-          <button
-            onClick={() => toggleSection('settings')}
-            className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-all"
-          >
-            <h2 className="text-xl font-bold text-gray-800">CÀI ĐẶT</h2>
-            <svg
-              className={`w-5 h-5 text-gray-600 transition-transform ${expandedSections.settings ? 'rotate-180' : ''}`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-
-          {expandedSections.settings && (
-            <div className="px-6 pb-6">
-              {/* QR CODE & SHARING */}
-              <div className="bg-gray-50 rounded-lg p-4 mb-6">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4">Mã QR Điểm Danh</h3>
-                <div className="text-center">
-                  <div className="bg-white p-6 rounded-lg inline-block border-2 border-gray-200">
-                    <QRCode
-                      id="qr-code"
-                      value={`https://www.diemdanh.net/checkin/submit?store=${store.id}`}
-                      size={200}
-                      level="H"
-                    />
-                  </div>
-                  <div className="mt-4">
-                    <div className="flex flex-wrap gap-2 justify-center">
-                      <button
-                        type="button"
-                        onClick={downloadQRCode}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-all"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                        Tải xuống
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText(`https://www.diemdanh.net/checkin/submit?store=${store.id}`);
-                          alert('Đã sao chép link!');
-                        }}
-                        className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-all"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                        Copy Link
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <form onSubmit={(e) => {
-                e.preventDefault();
-                const formData = new FormData(e.currentTarget);
-                updateStoreSettings({
-                  name: formData.get('name') as string,
-                  address: formData.get('address') as string,
-                  latitude: parseFloat(formData.get('latitude') as string),
-                  longitude: parseFloat(formData.get('longitude') as string),
-                  gps_required: formData.get('gps_required') === 'on',
-                  selfie_required: formData.get('selfie_required') === 'on',
-                  access_mode: formData.get('access_mode') as 'staff_only' | 'anyone',
-                  radius_meters: parseInt(formData.get('radius_meters') as string) || 50,
-                });
-              }} className="space-y-6">
-                {/* Store Information */}
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h3 className="text-lg font-semibold text-gray-800 mb-4">Thông Tin Cửa Hàng</h3>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Tên cửa hàng</label>
-                      <input
-                        type="text"
-                        name="name"
-                        required
-                        defaultValue={store.name}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Địa chỉ</label>
-                      <input
-                        type="text"
-                        name="address"
-                        required
-                        defaultValue={store.address}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      />
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Vĩ độ</label>
-                        <input
-                          type="number"
-                          name="latitude"
-                          required
-                          step="any"
-                          defaultValue={store.latitude}
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Kinh độ</label>
-                        <input
-                          type="number"
-                          name="longitude"
-                          required
-                          step="any"
-                          defaultValue={store.longitude}
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* GPS Settings */}
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-800">Yêu cầu GPS</h3>
-                      <p className="text-sm text-gray-600 mt-1">
-                        Nhân viên phải ở trong bán kính cho phép
-                      </p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        name="gps_required"
-                        className="sr-only peer"
-                        defaultChecked={store.gps_required}
-                      />
-                      <div className="w-14 h-7 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
-                    </label>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Bán kính (mét)
-                    </label>
-                    <input
-                      type="number"
-                      name="radius_meters"
-                      min="10"
-                      max="1000"
-                      step="10"
-                      defaultValue={store.radius_meters}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
-                </div>
-
-                {/* Selfie Settings */}
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-800">Yêu cầu Selfie</h3>
-                      <p className="text-sm text-gray-600 mt-1">
-                        Nhân viên phải chụp ảnh khi điểm danh
-                      </p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        name="selfie_required"
-                        className="sr-only peer"
-                        defaultChecked={store.selfie_required}
-                      />
-                      <div className="w-14 h-7 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
-                    </label>
-                  </div>
-                </div>
-
-                {/* Access Mode */}
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h3 className="text-lg font-semibold text-gray-800 mb-4">Chế độ truy cập</h3>
-                  <div className="space-y-3">
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="access_mode"
-                        value="staff_only"
-                        defaultChecked={store.access_mode === 'staff_only'}
-                        className="w-5 h-5 text-blue-600"
-                      />
-                      <div>
-                        <div className="font-medium text-gray-800">Chỉ nhân viên</div>
-                        <div className="text-sm text-gray-600">Chỉ email trong danh sách mới điểm danh được</div>
-                      </div>
-                    </label>
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="access_mode"
-                        value="anyone"
-                        defaultChecked={store.access_mode === 'anyone'}
-                        className="w-5 h-5 text-blue-600"
-                      />
-                      <div>
-                        <div className="font-medium text-gray-800">Bất kỳ ai</div>
-                        <div className="text-sm text-gray-600">Ai cũng có thể điểm danh (không cần trong danh sách)</div>
-                      </div>
-                    </label>
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={settingsLoading}
-                  className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-6 py-3 rounded-lg font-semibold transition-all"
-                >
-                  {settingsLoading ? 'Đang lưu...' : 'Lưu Cài Đặt'}
-                </button>
-              </form>
-            </div>
-          )}
+          </div>
         </div>
       </main>
 
@@ -983,6 +1101,98 @@ export default function StoreDetail() {
         </div>
       )}
 
+      {/* Confirm Dialog */}
+      {confirmDialog.show && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-2xl max-w-md w-full p-6">
+            <h3 className="text-lg font-bold text-gray-800 mb-4">Xác nhận</h3>
+            <p className="text-gray-700 mb-6">{confirmDialog.message}</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirmDialog({ show: false, message: '', onConfirm: () => {} })}
+                className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg font-semibold transition-all"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={confirmDialog.onConfirm}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold transition-all"
+              >
+                Xác nhận
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Staff Assignment Modal for Schedule */}
+      {showAssignModal && selectedShift && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-xl font-semibold text-gray-800">
+                Xếp nhân viên - {selectedShift.name}
+              </h3>
+              <p className="text-sm text-gray-600 mt-1">
+                {selectedDate}
+              </p>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="space-y-3">
+                {staff.map((s) => (
+                  <label
+                    key={s.id}
+                    className="flex items-center gap-3 p-3 rounded-lg border-2 border-gray-200 hover:bg-gray-50 cursor-pointer transition-all"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedStaffIds.includes(s.id)}
+                      onChange={() => toggleStaffSelection(s.id)}
+                      className="w-5 h-5 text-blue-600 rounded"
+                    />
+                    <div>
+                      <div className="font-semibold text-gray-800">{s.full_name}</div>
+                      <div className="text-sm text-gray-600">{s.email}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-gray-200">
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowAssignModal(false)}
+                  disabled={isAssigning}
+                  className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 px-6 py-3 rounded-lg font-semibold transition-all disabled:opacity-50"
+                >
+                  Đóng
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveStaff}
+                  disabled={isAssigning}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isAssigning ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <span>Đang lưu...</span>
+                    </>
+                  ) : (
+                    <span>Lưu ({selectedStaffIds.length})</span>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Container */}
+      <toast.ToastContainer />
     </div>
   );
 }
