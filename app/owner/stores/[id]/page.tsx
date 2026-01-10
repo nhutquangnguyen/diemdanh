@@ -20,6 +20,7 @@ import QRCode from 'react-qr-code';
 import Header from '@/components/Header';
 import { useToast } from '@/components/Toast';
 import StoreSchedule from '@/components/StoreSchedule';
+import SmartScheduleNew from '@/components/SmartScheduleNew';
 import StoreShifts from '@/components/StoreShifts';
 import StoreSettings from '@/components/StoreSettings';
 import StoreToday from '@/components/StoreToday';
@@ -42,7 +43,7 @@ export default function StoreDetail() {
   const [settingsLoading, setSettingsLoading] = useState(false);
 
   // Tab navigation state
-  const [activeTab, setActiveTab] = useState<'today' | 'overview' | 'shifts' | 'staff' | 'settings' | 'schedule' | 'report' | 'salary'>('today');
+  const [activeTab, setActiveTab] = useState<'today' | 'overview' | 'shifts' | 'staff' | 'settings' | 'schedule' | 'smart-schedule' | 'report' | 'salary'>('today');
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   // Filter state for staff overview
@@ -1053,7 +1054,7 @@ export default function StoreDetail() {
               type="button"
               onClick={() => setShowMoreMenu(!showMoreMenu)}
               className={`w-full px-4 py-3 rounded-lg font-semibold transition-all ${
-                activeTab === 'settings' || activeTab === 'shifts' || activeTab === 'staff' || showMoreMenu
+                activeTab === 'settings' || activeTab === 'shifts' || activeTab === 'staff' || activeTab === 'smart-schedule' || showMoreMenu
                   ? 'bg-blue-600 text-white'
                   : 'text-gray-700 hover:bg-gray-100'
               } flex items-center justify-center gap-2`}
@@ -1090,6 +1091,19 @@ export default function StoreDetail() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   <span className="font-semibold text-gray-700">Quản Lý Ca</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('smart-schedule');
+                    setShowMoreMenu(false);
+                  }}
+                  className="w-full text-left px-4 py-3 hover:bg-gray-100 transition-all flex items-center gap-3"
+                >
+                  <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                  </svg>
+                  <span className="font-semibold text-gray-700">Lịch Thông Minh 🤖</span>
                 </button>
                 <button
                   type="button"
@@ -1174,6 +1188,22 @@ export default function StoreDetail() {
               handleTouchStart={handleTouchStart}
               handleTouchMove={handleTouchMove}
               handleTouchEnd={handleTouchEnd}
+            />
+          )}
+
+          {/* SMART SCHEDULE TAB */}
+          {activeTab === 'smart-schedule' && (
+            <SmartScheduleNew
+              storeId={storeId}
+              staff={staff}
+              shifts={shifts}
+              currentWeekStart={currentWeekStart}
+              navigateWeek={navigateWeek}
+              goToToday={goToToday}
+              onScheduleApplied={() => {
+                loadSchedules();
+                setActiveTab('schedule');
+              }}
             />
           )}
 

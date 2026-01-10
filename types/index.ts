@@ -172,3 +172,100 @@ export interface StaffSalaryCalculation {
   daily_breakdown: DailyWorkBreakdown[];
   confirmation?: SalaryConfirmation;
 }
+
+// Smart Schedule types
+export interface StaffAvailability {
+  id: string;
+  staff_id: string;
+  store_id: string;
+  week_start_date: string; // YYYY-MM-DD (Monday)
+  shift_template_id: string;
+  day_of_week: number; // 0=Sunday, 6=Saturday
+  is_available: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ShiftRequirement {
+  id: string;
+  store_id: string;
+  week_start_date: string; // YYYY-MM-DD (Monday)
+  shift_template_id: string;
+  day_of_week: number; // 0=Sunday, 6=Saturday
+  required_staff_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScheduleGeneration {
+  id: string;
+  store_id: string;
+  week_start_date: string;
+  total_shifts_required: number;
+  total_shifts_filled: number;
+  coverage_percent: number;
+  fairness_score: number;
+  total_warnings: number;
+  is_accepted: boolean;
+  accepted_at?: string;
+  created_by?: string;
+  created_at: string;
+}
+
+// Smart schedule algorithm types
+export interface SmartScheduleShift {
+  date: string; // YYYY-MM-DD
+  shiftTemplateId: string;
+  shiftName: string;
+  startTime: string;
+  endTime: string;
+  duration: number; // hours
+  required: number; // staff count needed
+  dayOfWeek: number; // 0-6
+}
+
+export interface SmartScheduleAvailability {
+  [staffId: string]: {
+    [date: string]: {
+      [shiftId: string]: boolean; // true = available
+    };
+  };
+}
+
+export interface SmartScheduleAssignment {
+  [staffId: string]: {
+    [date: string]: string[]; // array of shiftIds
+  };
+}
+
+export interface SmartScheduleWarning {
+  type: 'understaffed' | 'overstaffed' | 'no_shifts' | 'overwork';
+  severity: 'critical' | 'warning' | 'info';
+  shift?: SmartScheduleShift;
+  staffId?: string;
+  assigned?: number;
+  required?: number;
+  message: string;
+}
+
+export interface SmartScheduleStats {
+  totalShiftsFilled: number;
+  totalShiftsRequired: number;
+  coveragePercent: number;
+  avgHoursPerStaff: number;
+  minHours: number;
+  maxHours: number;
+  hoursVariance: number;
+  avgShiftsPerStaff: number;
+  minShifts: number;
+  maxShifts: number;
+  fairnessScore: number;
+}
+
+export interface SmartScheduleResult {
+  assignments: SmartScheduleAssignment;
+  warnings: SmartScheduleWarning[];
+  stats: SmartScheduleStats;
+  staffHours: { [staffId: string]: number };
+  staffShiftCount: { [staffId: string]: number };
+}
