@@ -26,6 +26,7 @@ export default function SmartSchedulePreview({
 }: SmartSchedulePreviewProps) {
   const toast = useToast();
   const [applying, setApplying] = useState(false);
+  const [viewMode, setViewMode] = useState<'staff-rows' | 'date-rows'>('staff-rows'); // Toggle between views
 
   const { assignments, warnings, stats, staffHours, staffShiftCount } = schedule;
 
@@ -192,84 +193,184 @@ export default function SmartSchedulePreview({
         <div className="p-6">
           <h3 className="text-lg font-semibold text-gray-800 mb-3">Lịch Làm Việc:</h3>
 
-          {/* Legend */}
-          <div className="mb-4 flex flex-wrap gap-3 bg-gray-50 p-3 rounded-lg">
-            {shifts.map(shift => (
-              <div key={shift.id} className="flex items-center gap-2">
-                <div
-                  className="w-4 h-4 rounded"
-                  style={{ backgroundColor: shift.color }}
-                />
-                <span className="text-xs font-medium text-gray-700">{shift.name}</span>
+          {/* View Toggle & Legend */}
+          <div className="mb-4 space-y-3">
+            {/* Toggle Button */}
+            <div className="flex justify-end">
+              <div className="inline-flex rounded-lg border border-gray-300 bg-white p-1">
+                <button
+                  onClick={() => setViewMode('staff-rows')}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                    viewMode === 'staff-rows'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  Nhân viên theo hàng
+                </button>
+                <button
+                  onClick={() => setViewMode('date-rows')}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                    viewMode === 'date-rows'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  Ngày theo hàng
+                </button>
               </div>
-            ))}
+            </div>
+
+            {/* Legend */}
+            <div className="flex flex-wrap gap-3 bg-gray-50 p-3 rounded-lg">
+              {shifts.map(shift => (
+                <div key={shift.id} className="flex items-center gap-2">
+                  <div
+                    className="w-4 h-4 rounded"
+                    style={{ backgroundColor: shift.color }}
+                  />
+                  <span className="text-xs font-medium text-gray-700">{shift.name}</span>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="overflow-x-auto -mx-6 px-6">
-            <table className="w-full border-collapse min-w-full">
-              <thead>
-                <tr className="border-b-2 border-gray-300">
-                  <th className="text-left p-2 sm:p-3 text-gray-700 font-bold text-xs sm:text-sm border-r border-gray-200 sticky left-0 bg-white z-20 shadow-[2px_0_4px_rgba(0,0,0,0.05)] w-20 sm:w-auto">
-                    <div className="whitespace-nowrap">Nhân Viên</div>
-                  </th>
-                  {weekDates.map((date, dayIndex) => (
-                    <th key={date} className="p-0.5 sm:p-2 text-center border-r border-gray-200 last:border-r-0 w-[25px] sm:w-[80px]">
-                      <div className="text-[9px] sm:text-xs font-semibold text-gray-600">{dayNames[dayIndex]}</div>
-                      <div className="text-[8px] sm:text-xs text-gray-500">
-                        {new Date(date).getDate()}/{new Date(date).getMonth() + 1}
-                      </div>
+            {viewMode === 'staff-rows' ? (
+              // Original View: Staff as Rows
+              <table className="w-full border-collapse min-w-full">
+                <thead>
+                  <tr className="border-b-2 border-gray-300">
+                    <th className="text-left p-2 sm:p-3 text-gray-700 font-bold text-xs sm:text-sm border-r border-gray-200 sticky left-0 bg-white z-20 shadow-[2px_0_4px_rgba(0,0,0,0.05)] w-20 sm:w-auto">
+                      <div className="whitespace-nowrap">Nhân Viên</div>
                     </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {staff.map((staffMember, index) => (
-                  <tr
-                    key={staffMember.id}
-                    className={`border-b border-gray-200 ${
-                      index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
-                    }`}
-                  >
-                    <td className={`p-2 sm:p-3 border-r border-gray-200 sticky left-0 z-20 shadow-[2px_0_4px_rgba(0,0,0,0.05)] ${
-                      index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
-                    }`}>
-                      <div className="font-semibold text-gray-800 text-xs sm:text-sm whitespace-nowrap overflow-hidden text-ellipsis max-w-[60px] sm:max-w-none" title={staffMember.name || staffMember.full_name}>
-                        {(() => {
-                          const name = staffMember.name || staffMember.full_name;
-                          return name.length > 8 ? `${name.substring(0, 7)}...` : name;
-                        })()}
-                      </div>
-                    </td>
-                    {weekDates.map((date) => {
-                      const shiftIds = getAssignments(staffMember.id, date);
-                      const shifts = shiftIds.map(id => getShift(id)).filter(Boolean);
-
-                      return (
-                        <td
-                          key={date}
-                          className="p-0 sm:p-1 border-r border-gray-200 last:border-r-0 text-center align-top w-[25px] sm:w-[80px]"
-                        >
-                          {shifts.length > 0 ? (
-                            <div className="flex flex-col gap-0.5 min-h-[30px] sm:min-h-[40px] py-1">
-                              {shifts.map((shift) => shift && (
-                                <div
-                                  key={shift.id}
-                                  className="w-full h-3 sm:h-4 rounded"
-                                  style={{ backgroundColor: shift.color }}
-                                  title={`${shift.name}\n${shift.start_time.substring(0, 5)} - ${shift.end_time.substring(0, 5)}`}
-                                />
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="text-gray-300 text-[10px] sm:text-xs min-h-[30px] sm:min-h-[40px] flex items-center justify-center">--</div>
-                          )}
-                        </td>
-                      );
-                    })}
+                    {weekDates.map((date, dayIndex) => (
+                      <th key={date} className="p-0.5 sm:p-2 text-center border-r border-gray-200 last:border-r-0 w-[25px] sm:w-[80px]">
+                        <div className="text-[9px] sm:text-xs font-semibold text-gray-600">{dayNames[dayIndex]}</div>
+                        <div className="text-[8px] sm:text-xs text-gray-500">
+                          {new Date(date).getDate()}/{new Date(date).getMonth() + 1}
+                        </div>
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {staff.map((staffMember, index) => (
+                    <tr
+                      key={staffMember.id}
+                      className={`border-b border-gray-200 ${
+                        index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+                      }`}
+                    >
+                      <td className={`p-2 sm:p-3 border-r border-gray-200 sticky left-0 z-20 shadow-[2px_0_4px_rgba(0,0,0,0.05)] ${
+                        index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+                      }`}>
+                        <div className="font-semibold text-gray-800 text-xs sm:text-sm whitespace-nowrap overflow-hidden text-ellipsis max-w-[60px] sm:max-w-none" title={staffMember.name || staffMember.full_name}>
+                          {(() => {
+                            const name = staffMember.name || staffMember.full_name;
+                            return name.length > 8 ? `${name.substring(0, 7)}...` : name;
+                          })()}
+                        </div>
+                      </td>
+                      {weekDates.map((date) => {
+                        const shiftIds = getAssignments(staffMember.id, date);
+                        const assignedShifts = shiftIds.map(id => getShift(id)).filter(Boolean);
+
+                        return (
+                          <td
+                            key={date}
+                            className="p-0 sm:p-1 border-r border-gray-200 last:border-r-0 text-center align-top w-[25px] sm:w-[80px]"
+                          >
+                            {assignedShifts.length > 0 ? (
+                              <div className="flex flex-col gap-0.5 min-h-[30px] sm:min-h-[40px] py-1">
+                                {assignedShifts.map((shift) => shift && (
+                                  <div
+                                    key={shift.id}
+                                    className="w-full h-3 sm:h-4 rounded"
+                                    style={{ backgroundColor: shift.color }}
+                                    title={`${shift.name}\n${shift.start_time.substring(0, 5)} - ${shift.end_time.substring(0, 5)}`}
+                                  />
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-gray-300 text-[10px] sm:text-xs min-h-[30px] sm:min-h-[40px] flex items-center justify-center">--</div>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              // New View: Dates as Rows, Staff as Columns
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="border-b-2 border-gray-300">
+                    <th className="text-left p-3 text-gray-700 font-bold text-sm border-r border-gray-200 sticky left-0 bg-white z-20 shadow-[2px_0_4px_rgba(0,0,0,0.05)]">
+                      Ngày
+                    </th>
+                    {staff.map((staffMember) => (
+                      <th key={staffMember.id} className="p-3 text-center border-r border-gray-200 last:border-r-0 min-w-[120px]">
+                        <div className="font-semibold text-gray-800 text-sm">
+                          {staffMember.name || staffMember.full_name}
+                        </div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {weekDates.map((date, dayIndex) => (
+                    <tr
+                      key={date}
+                      className={`border-b border-gray-200 ${
+                        dayIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+                      }`}
+                    >
+                      <td className={`p-3 border-r border-gray-200 sticky left-0 z-20 shadow-[2px_0_4px_rgba(0,0,0,0.05)] ${
+                        dayIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+                      }`}>
+                        <div className="font-semibold text-gray-800 text-sm">
+                          {dayNames[dayIndex]}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {new Date(date).getDate()}/{new Date(date).getMonth() + 1}
+                        </div>
+                      </td>
+                      {staff.map((staffMember) => {
+                        const shiftIds = getAssignments(staffMember.id, date);
+                        const assignedShifts = shiftIds.map(id => getShift(id)).filter(Boolean);
+
+                        return (
+                          <td
+                            key={staffMember.id}
+                            className="p-2 border-r border-gray-200 last:border-r-0 text-center align-middle"
+                          >
+                            {assignedShifts.length > 0 ? (
+                              <div className="flex flex-col gap-1">
+                                {assignedShifts.map((shift) => shift && (
+                                  <div
+                                    key={shift.id}
+                                    className="px-2 py-1 rounded text-xs font-medium text-white"
+                                    style={{ backgroundColor: shift.color }}
+                                  >
+                                    {shift.name}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-red-500 text-xs font-medium bg-red-50 py-1 px-2 rounded">
+                                OFF
+                              </div>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
 
           {/* Workload Distribution */}
